@@ -2,14 +2,18 @@ from __future__ import annotations
 from operator import attrgetter
 from . import callables, methodtools
 
-class Slots:
-	'''Code Generator for classes with defined members.'''	
 
-	__slots__ = __match_args__ = __args__ = ()
-
+class Base:
+	'''Base class for Slots and Slot classes.'''
 	_new_method = classmethod(methodtools.add_method)
 
 	__new = classmethod(object.__new__)
+		
+
+class Slots(Base):
+	'''Code Generator for classes with defined members.'''	
+
+	__slots__ = __match_args__ = __args__ = ()
 
 	def __init_subclass__(cls, /, *,  defaults=None, frozen=None, repr=None):
 		if field_names := cls.__slots__:
@@ -63,13 +67,13 @@ class Slots:
 	__sizeof__ = property(attrgetter('__args__.__sizeof__'))
 
 	def __copy__(self, /):
-		value = self.__new()
+		value = super().__new()
 		value.__init(*self.__args__)
 		return value
 
 	def _replace(self, /, **data) -> Slots:
 		args = map(data.pop, self.__match_args__, self.__args__)
-		self = self.__new()
+		self = super().__new()
 		self.__init(*args)
 		if not data:
 			return self
@@ -78,26 +82,32 @@ class Slots:
 	def _asdict(self, cls=dict, /) -> dict:
 		return cls(zip(self.__match_args__, self.__args__))
 
-class Slot:
-	__slots__ = __key = '__value'
-	
-	def __init_subclass__(cls, /, *, default=None, frozen=None, attrname=None):
-		add = cls._new_method
+
+def frozen_attr_error(attr, key):
+	if attr == key:
+		raise AttributeError(f'Attribute {attr} is read-only')
+
+
+class Slot(Base):
+	def __init_subclass__(cls, /, *, default=callables._SENTINEL, frozen=None):
+		if slot := cls.__slots__:
+			add = cls._new_method
+			cls.__key  = slot
 		
-		if attrname:
-			setattr(cls, attrname, self.__value)
-			cls.__key  = attrname
-		
-		if default:
-			add(callables.attrsetter((cls.__key,), (default,)))
+			default = (default,) if default is not _SENTINEL else ()
+			add(callables.attrsetter1(slot, default))
 		
 		if frozen:
+			key = cls.__key
 			@add
-			def __setattr__(self, attr, value, /):
-				if hasattr(self, attr):
-					raise AttributeError(f'Attribute {attr} is read-only')
-				raise AttributeError(f"""'object' {self.__class__.__name__} has
-					no attribute named '{attr}'""")
+			def __setattr__(self, attr, value, cls=cls, /):
+				frozen_attr_error(attr, key)
+				super(cls, self).__setattr__(attr, value)
+
+			@add
+			def __delattr__(self, attr, cls=cls, /):
+				frozen_attr_error(attr, key)
+				super(cls, self).__delattr__(attr)
 	
 
 	def __repr__(self, /):
@@ -117,7 +127,8 @@ class Slot:
 	__sizeof__ = property(attrgetter('__value.__sizeof__'))
 
 	def __copy__(self, /):
-		return self.__class__(self.__value)
+		setattr(self := super().__new, self.__key, self.__value)
+		return self
 
 	def _asdict(self, /):
 		return {self.__key:self.__value}
@@ -125,6 +136,3 @@ class Slot:
 
 def slotsfunc(func, /):
 	return lambda self, /: func(*self.__args__)
-
-
-Slots.__init__ = property(callables.method(Slot._Slot__value.__set__))
