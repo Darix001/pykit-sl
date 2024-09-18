@@ -27,7 +27,6 @@ def attrsetter1(field, default=_SENTINEL, /):
 	return FunctionType(code, cache, '__init__', defaults)
 		
 
-
 def compose(*args:tuple[Callable], doc = None) -> Callable:
 	'''Combines passed functions into one single callable.'''
 	def func(self, /):
