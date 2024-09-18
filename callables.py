@@ -4,6 +4,8 @@ from types import (MethodType as Bounder, SimpleNamespace as bounders,
 from reprlib import Repr
 import __future__
 
+_SENTINEL = object()
+
 
 def attrsetter(field_names:tuple[str], /, defaults:tuple = None) -> Callable:
 	'''Returns an initializer with given attrs and default arguments'''
@@ -13,11 +15,17 @@ def attrsetter(field_names:tuple[str], /, defaults:tuple = None) -> Callable:
 	else:
 		data = ('\tself.%s=%%s\n' * size) % field_names
 		data %= field_names
-		print(cache, len(field_names))
 		cache[size] = code = compile(
 			f"def __init__(self,/,{','.join(field_names)}):\n{data}",
 			'<string>','exec').co_consts[0]
 	return FunctionType(code, cache, '__init__', defaults)
+
+
+def attrsetter1(field, default=_SENTINEL, /):
+	defaults = (default,) if default is _SENTINEL else ()
+	code = cache[1].replace(co_names = (field,), co_varnames = ('self', field))
+	return FunctionType(code, cache, '__init__', defaults)
+		
 
 
 def compose(*args:tuple[Callable], doc = None) -> Callable:
