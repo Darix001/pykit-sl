@@ -22,7 +22,7 @@ def attrsetter(field_names:tuple[str], /, defaults:tuple = None) -> Callable:
 
 
 def attrsetter1(field, default=_SENTINEL, /):
-	defaults = (default,) if default is _SENTINEL else ()
+	defaults = (default,) if default is not _SENTINEL else ()
 	code = cache[1].replace(co_names = (field,), co_varnames = ('self', field))
 	return FunctionType(code, cache, '__init__', defaults)
 		

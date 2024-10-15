@@ -6,6 +6,23 @@ from itertools import islice, count
 from functools import update_wrapper
 
 
+class cached_property:
+	__slots__ = ('func', 'name')
+	
+	def __init__(self, func, /):
+		self.func = func
+
+	def __set_name__(self, cls, name, /):
+		self.name = name
+
+	def __get__(self, instance, owner=None):
+		if instance is None:
+			return self
+		setattr(instance, self.name, value := self.func(instance))
+		return value
+		
+
+
 class Cache(defaultdict):
 	'''Defaultdict that pass missing key to default_factory as an argument.'''
 	__slots__ = ()
@@ -14,6 +31,18 @@ class Cache(defaultdict):
 	def __missing__(self, key, /):
 		self[key] = key = self.default_factory(key)
 		return key
+
+
+class CachedAttr:
+	'''Works like a cache dict, but with the equivalence of
+	getattr(cache, attr) == cache[attr]'''
+	
+	def __init__(self, default_factory, /):
+		self.__func = default_factory
+	
+	def __getattr__(self, attr, /):
+		setattr(self, attr, value := self.__func(attr))
+		return value
 
 
 def _cache_func(load, /):

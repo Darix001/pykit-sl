@@ -7,7 +7,7 @@ class Base:
 	'''Base class for Slots and Slot classes.'''
 	_new_method = classmethod(methodtools.add_method)
 
-	__new = classmethod(object.__new__)
+	_new = classmethod(object.__new__)
 		
 
 class Slots(Base):
@@ -15,8 +15,17 @@ class Slots(Base):
 
 	__slots__ = __match_args__ = __args__ = ()
 
-	def __init_subclass__(cls, /, *,  defaults=None, frozen=None, repr=None):
+	def __init_subclass__(cls, /, *, abstract=False,
+		defaults=None, frozen=False, repr=None, newdefs=None):
 		if field_names := cls.__slots__:
+			if isinstance(field_names, str):
+				field_names = field_names,
+		
+		if abstract:
+			cls.__match_args__ = field_names
+			return
+
+		else:
 			cls.__match_args__ = field_names = cls.__match_args__ + field_names
 			module, qualname =  cls.__module__, cls.__qualname__
 
@@ -34,7 +43,7 @@ class Slots(Base):
 
 			cls.__args__ = property(attrgetter(*field_names))
 
-		elif defaults:
+		if newdefs:
 			init = add(cls.__init__, copy=True)
 			init.__defaults__ = defaults
 
@@ -67,13 +76,13 @@ class Slots(Base):
 	__sizeof__ = property(attrgetter('__args__.__sizeof__'))
 
 	def __copy__(self, /):
-		value = super().__new()
+		value = super()._new()
 		value.__init(*self.__args__)
 		return value
 
 	def _replace(self, /, **data) -> Slots:
 		args = map(data.pop, self.__match_args__, self.__args__)
-		self = super().__new()
+		self = super()._new()
 		self.__init(*args)
 		if not data:
 			return self
@@ -93,8 +102,8 @@ class Slot(Base):
 		if slot := cls.__slots__:
 			add = cls._new_method
 			cls.__key  = slot
+			cls.__value = getattr(cls, slot)
 		
-			default = (default,) if default is not _SENTINEL else ()
 			add(callables.attrsetter1(slot, default))
 		
 		if frozen:
@@ -127,7 +136,7 @@ class Slot(Base):
 	__sizeof__ = property(attrgetter('__value.__sizeof__'))
 
 	def __copy__(self, /):
-		setattr(self := super().__new, self.__key, self.__value)
+		setattr(self := super()._new, self.__key, self.__value)
 		return self
 
 	def _asdict(self, /):
