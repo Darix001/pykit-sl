@@ -1,6 +1,7 @@
 '''The following module describes efficients and simple tools for caching.
 All this tools are usefull only for functions that only holds'''
 
+from types import SimpleNamespace
 from collections import defaultdict
 from itertools import islice, count
 from functools import update_wrapper
@@ -33,7 +34,8 @@ class Cache(defaultdict):
 		return key
 
 
-class CachedAttr:
+class AttrCache(SimpleNamespace):
+	__slots__ = '__func'
 	'''Works like a cache dict, but with the equivalence of
 	getattr(cache, attr) == cache[attr]'''
 	
@@ -43,6 +45,18 @@ class CachedAttr:
 	def __getattr__(self, attr, /):
 		setattr(self, attr, value := self.__func(attr))
 		return value
+
+	__getitem__ = SimpleNamespace.__getattribute__
+
+	__setitem__ = SimpleNamespace.__setattr__
+
+
+class LiteralCache(SimpleNamespace):
+	__slots__ = ()
+
+	def __getattr__(self, attr, /):
+		setattr(self, attr, attr)
+		return attr
 
 
 def _cache_func(load, /):
