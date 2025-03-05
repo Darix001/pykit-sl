@@ -1,2 +1,2 @@
 # pydrycode
- A variety of utilities for python.
+ A robust package with efficients, fasts, and memory saver solutions to deal with different kinds of objects in python such as, strings, functions, decorators, methods, ranges, sequences, etc...
