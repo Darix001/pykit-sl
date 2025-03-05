@@ -2,27 +2,11 @@
 All this tools are usefull only for functions that only holds'''
 
 from types import SimpleNamespace
-from collections import defaultdict
 from itertools import islice, count
 from functools import update_wrapper
+from collections import defaultdict
 
-
-class cached_property:
-	__slots__ = ('func', 'name')
-	
-	def __init__(self, func, /):
-		self.func = func
-
-	def __set_name__(self, cls, name, /):
-		self.name = name
-
-	def __get__(self, instance, owner=None):
-		if instance is None:
-			return self
-		setattr(instance, self.name, value := self.func(instance))
-		return value
-		
-
+obj_setattr = object.__setattr__
 
 class Cache(defaultdict):
 	'''Defaultdict that pass missing key to default_factory as an argument.'''
@@ -33,6 +17,23 @@ class Cache(defaultdict):
 		self[key] = key = self.default_factory(key)
 		return key
 
+del defaultdict
+
+
+class cached_property:
+
+	def __init__(self, func, /):
+		self.func = func
+
+	def __set_name__(self, cls, name, /):
+		self.name = name
+
+	def __get__(self, instance, owner=None, /):
+		if instance is None:
+			return self
+		obj_setattr(instance, self.name, value := self.func(instance))
+		return value
+		
 
 class AttrCache(SimpleNamespace):
 	__slots__ = '__func'
@@ -49,14 +50,6 @@ class AttrCache(SimpleNamespace):
 	__getitem__ = SimpleNamespace.__getattribute__
 
 	__setitem__ = SimpleNamespace.__setattr__
-
-
-class LiteralCache(SimpleNamespace):
-	__slots__ = ()
-
-	def __getattr__(self, attr, /):
-		setattr(self, attr, attr)
-		return attr
 
 
 def _cache_func(load, /):
@@ -96,6 +89,3 @@ def enumcache(func, data, size, /):
 	else:
 		start = len(data)
 	return data, map(func, _getcounter(start, size))
-
-
-del defaultdict

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from array import array
 
 class array(array):
@@ -16,3 +17,12 @@ def char_increment(x:int = 1, /) -> Callable[(str,), str]:
     '''A callable that increments string chars x steps'''
     x = range(x, x+1114112)
     return lambda self,/: self.translate(x)
+
+
+class LiteralAttr:
+    __slots__ = ()
+    @staticmethod
+    def __getattr__(attr, /):
+        return attr
+
+del Callable

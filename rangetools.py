@@ -1,5 +1,5 @@
 import math
-from functools import update_wrapper
+from functools import update_wrapper, wraps
 
 
 def prod(r:range, /):
@@ -56,9 +56,36 @@ def median(r) -> int | float:
     return r[i] if mod else (r[i] + r[i - 1]) / 2
 
 
-def sum(r) -> int:
+def rsum(r) -> int:
     '''Calculates sum(range(*args)).'''
     return (r.start + r[-1]) * len(r) // 2 if r else 0
+
+
+def minmax(func, /):
+    @statistic
+    def function(r, /):
+        return func(r, r.step > 0)
+    return function
+
+@minmax
+def rmin(r, growing, /) -> int:
+    return r.start if growing else r[-1]
+
+
+
+@minmax
+def rmax(r, growing, /) -> int:
+    return r.start if growing else r[-1]
+
+
+@minmax
+def argmin(r, growing, /) -> int:
+    return 0 if growing else len(r) - 1
+
+
+@minmax
+def argmax(r, growing, /) -> int:
+    return len(r) - 1 if growing else 0
 
 
 def setmethod(func, data={'r':range, 'x':range, 'return':bool}, /):
@@ -110,7 +137,23 @@ def contains(r, x, /):
 @setmethod
 def intersection(r, x, /):
     '''Returns the intersection of two ranges as a new range.'''
-    start = max(r.start, x.start)
-    stop = min(r.stop, x.stop)
-    step = math.lcm(x.step, r.step)
-    return range(start, stop, step)
+    if (start := r1.start) < (rstart := r2.start):
+        start = rstart
+    
+    if (stop := r1.stop) > (rstop := r2.stop):
+        stop = rstop
+    
+    if start >= stop:
+        return range(0, 0)  # No intersection
+
+    # Find the least common multiple (LCM) of the steps to ensure alignment
+    step_lcm = math.lcm(r.step, x.step)
+
+    # Find the first valid number in the intersection range
+    while start < stop and (start - r1.start) % r1.step != 0:
+        start += 1
+    
+    while start < stop and (start - r2.start) % r2.step != 0:
+        start += 1
+
+    return range(start, stop, step_lcm)

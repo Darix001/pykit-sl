@@ -1,8 +1,6 @@
-import operator, re, collections.abc as abc
+import operator, re, collections.abc as abc, itertools as it, math
 
 from numbers import Number
-from itertools import compress, islice, count
-from math import isqrt, trunc, ceil
 from bitarray import bitarray
 
 
@@ -55,17 +53,17 @@ def eval(string:str, /, dtype:abc.Callable = int, start:int = 0) -> Number:
 def sieve(x:int, /) -> abc.Iterator[int]:
     '''All Prime Numbers lower than x.'''
     data = bitarray * (x + 1)
-    for x in compress(count(2), islice(data, 2, isqrt(x) + 1)):
+    for x in it.compress(it.count(2), it.islice(data, 2, math.isqrt(x) + 1)):
         data[x*x::x] = 0
     del data[:2]
-    return compress(count(2), data)
+    return it.compress(it.count(2), data)
 
 
 def gauss_sum(start:int, stop:int = None, /) -> int:
     '''Sum of all numbers from start to stop.'''
     if stop is None:
         return start * (start + 1) // 2
-    return trunc(((stop - start + 1) / 2) * (stop + start))
+    return math.trunc(((stop - start + 1) / 2) * (stop + start))
 
 
 def collatz(x:Number, /) -> abc.Generator[Number]:
@@ -80,7 +78,7 @@ def collatz(x:Number, /) -> abc.Generator[Number]:
 
 def ndigits(x:int, /) -> int:
     '''Calculates len(str(x))'''
-    i = trunc(0.30102999566398114 * (x.bit_length() - 1)) + 1
+    i = math.trunc(0.30102999566398114 * (x.bit_length() - 1)) + 1
     return (10 ** i <= abs(x)) + i
 
 
@@ -94,9 +92,17 @@ def sumdigits(x:int, /, start:int = 0) -> Number:
 
 def nbytes(x:int, /) -> int:
     '''The amount of space in bytes that the integer would occupe.'''
-    return ceil(x.bit_length() / 8)
+    return math.ceil(x.bit_length() / 8)
 
 
+def lcm2(x:Number, y:Number, /) -> Number:
+    '''Returns the lcm of passed numbers. Unlike like math.lcm, it works with
+    any kind of numbers'''
+    if x != y:
+        if x < y:
+            x, y = y, x
 
+        if x % y:
+            return x * y
 
-del operator, abc, Number
+    return x
