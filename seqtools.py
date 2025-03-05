@@ -294,13 +294,13 @@ class islice_(indexed):
 	
 	def __iter__(self, /):
 		gen = iter(data := self.data)
-		if start := self.start:
+		start, stop, step = args(r := self.r)
+		if start:
 			try:
 				gen.__setstate__(start)
 			except AttributeError:
 				return getitems(data, r)
 			else:
-				start, stop, step = args(r := self.r)
 				stop -= start
 				start = 0
 		return it.islice(gen, start, stop, step)
@@ -1527,17 +1527,6 @@ class Arange(BaseCounter, BaseSequence):
 
 	def torange(self, /) -> range:
 		return range(self.start, self.stop, self.step)
-
-	def intersection(*others):
-		cls = type(self := others[0])
-		starts, stops, steps = zip(*map(
-			op.attrgetter('start', 'stop', 'step'), others))
-		
-		step = math.lcm(*steps)
-		diff = sum(map(op.neg, starts))
-		if (diff % step if diff >= step else step % diff):
-			return self._empty
-		return cls(max(starts), min(stops), step)
 
 
 del maxsize, abc, ITII, UserDict, simple_compose, UserList
