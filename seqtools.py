@@ -1,5 +1,7 @@
 from __future__ import annotations
 import itertools as it, math, operator as op, collections.abc as abc
+import more_itertools as mit
+
 
 from typing import Any, NamedTuple
 from sys import maxsize, path
@@ -32,7 +34,7 @@ mapper = methodtools.partializer(map)
 
 MAP = [it.repeat, from_iterable, reversed, it.islice,
 op.itemgetter(slice(None, None, -1)), op.getitem,
-op.floordiv, len, op.contains, op.countOf]
+op.floordiv, op.mod, len, op.contains, op.countOf]
 
 MAP[:] = map(mapper, MAP)
 
@@ -152,8 +154,10 @@ def get(self, index, default=None, /):
 	except IndexError:
 		return default
 
+
 def all_equals(self, /):
 	return self.count(self[0]) == len(self)
+
 
 def iter_index(self:Sequence, value, start:int=0, stop:int=maxsize):
 	try:
@@ -165,6 +169,7 @@ def iter_index(self:Sequence, value, start:int=0, stop:int=maxsize):
 	else:
 		from more_itertools import iter_index
 		yield from iter_index(islice(self, start, stop), value)
+
 
 def sub(self, values, start:int=0, stop:int=maxsize, /):
 	diff = 1
@@ -960,7 +965,7 @@ class Product(combinations, Sized):
 	r = list[int]
 
 	def stats(self, /) -> tuple[tuple, r, r, r, int]:
-		floordiv = MAP[-1]
+		floordiv = MAP[-2]
 		size = [*get_sizes(data := self.data)]
 		size *= (repeat := self.r)
 		*count, n = it.accumulate(size, op.mul, initial=1)
@@ -1558,17 +1563,24 @@ class Arange(BaseCounter, BaseSequence):
 
 	
 	def intersection(*ranges):
-		attrs = map(args, ranges)
 		self = ranges[0]
 		if len(ranges) > 1:
-			steps = []
 			ranges = sorted(ranges, key=op.attrgetter('step'), reverse=True)
-			starts, stops, steps = zip(*attrs)
-			print(steps[])
-			if ((step := steps[0]) == steps[-1] or
-				len(set(map(op.mod, starts, irepeat(step)))) == 1):
-				start = max(starts)
-				stop = min(stops)
+			starts, stops, steps = zip(*map(args, ranges))
+			mod = MAP[-1]
+			step = steps[0]
+			
+			if step == steps[-1] or not sum(mod(irepeat(step), steps[1:])):
+				if mit.all_equal(mod(starts, steps)):
+					start = max(starts)
+					stop = min(stops)
+				else:
+					return self._empty
+			
+			else:
+				pass
+				#PENDING RANGES WITH DIFFERENTS STEPS THAT ARE NOT MULTIPLE
+
 			return type(self)(start, stop, step)
 		else:
 			return self.copy()
