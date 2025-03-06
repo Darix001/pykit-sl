@@ -3,7 +3,7 @@ from reprlib import Repr
 from typing import Any
 from operator import attrgetter
 from collections import UserList
-from types import FunctionType, CodeType
+from types import FunctionType, CodeType, MethodType
 from functools import update_wrapper, partial, wraps
 from collections.abc import (MappingView, __loader__, Callable, Iterable,
 	Mapping)
@@ -29,7 +29,7 @@ INPLACE = ('__iadd__', '__isub__', '__ifloordiv__', '__itruediv__', '__imod__',
 
 UNARY = ('__abs__', '__pos__', '__neg__', '__invert__',)
 
-partializer = partial(partial, partial)
+partializer = MethodType(MethodType, MethodType)
 
 
 class Base:

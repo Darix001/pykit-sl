@@ -8,7 +8,6 @@ from collections.abc import Sequence
 from numbers import Number
 
 from . import methodtools
-from .numtools import lcm2
 from inspect import get_annotations
 from .cachetools import cached_property
 from .composetools import simple_compose
@@ -45,6 +44,7 @@ ITII = abc.Iterator[tuple[int, int]]
 NWISE_ITER = {1:zip, 2:it.pairwise}
 MAXSIZE_RANGE = range(maxsize)
 SENTINEL = object()
+ROOT12 = math.sqrt(12)
 
 
 def efficient_nwise(iterable:abc.Iterable, n:int) -> abc.Generator[deque]:
@@ -127,6 +127,7 @@ def multidata(cls, /) -> type:
 def slicer(func, /) -> abc.Callable:
 	return wrap(lambda obj, /, *args: func(obj, slice(*args)), func)
 
+
 @slicer
 def islice(data:Sequence, slicer, /):
 	if isinstance(data, islice_):
@@ -141,6 +142,41 @@ def repeat(object:Any, times:int) -> Repeat:
 
 def full(fill_value:Number, size:int) -> Full:
 	return Full(range(times if times > 0 else 0), fill_value)
+
+
+
+def get(self, index, default=None, /):
+	'''Return the value for key if key is in the sequence, else default.'''
+	try:
+		return self[index]
+	except IndexError:
+		return default
+
+def all_equals(self, /):
+	return self.count(self[0]) == len(self)
+
+def iter_index(self:Sequence, value, start:int=0, stop:int=maxsize):
+	try:
+		while True:
+			yield (start := self.index(value, start, stop))
+			start += 1
+	except (ValueError, TypeError):
+		return
+	else:
+		from more_itertools import iter_index
+		yield from iter_index(islice(self, start, stop), value)
+
+def sub(self, values, start:int=0, stop:int=maxsize, /):
+	diff = 1
+	first = values[0]
+	values = islice_(values, MAXSIZE_RANGE[diff:])
+	while diff:
+		index = start = self.index(first, start, stop)
+		for start, value in enumerate(values, start + diff):
+			if diff := value != self[start]:
+				start += diff
+				break
+	return index
 
 
 class BaseSequence(Sequence):
@@ -168,36 +204,6 @@ class BaseSequence(Sequence):
 
 		methodtools.add_method(cls, iterfunc)
 
-
-	def get(self, index, default=None, /):
-		'''Return the value for key if key is in the sequence, else default.'''
-		try:
-			return self[index]
-		except IndexError:
-			return default
-
-	def iter_index(self:Sequence, value, start:int=0, stop:int=maxsize):
-		try:
-			while True:
-				yield (start := self.index(value, start, stop))
-				start += 1
-		except (ValueError, TypeError):
-			return
-		else:
-			from more_itertools import iter_index
-			yield from iter_index(islice(self, start, stop), value)
-
-	def sub(self, values, start:int=0, stop:int=maxsize, /):
-		diff = 1
-		first = values[0]
-		values = islice_(values, MAXSIZE_RANGE[diff:])
-		while diff:
-			index = start = self.index(first, start, stop)
-			for start, value in enumerate(values, start + diff):
-				if diff := value != self[start]:
-					start += diff
-					break
-		return index
 	
 	def value_error(self, value, /):
 		raise ValueError(f"{value!r} not in {self.__class__.__name__}")
@@ -814,7 +820,6 @@ class zip_longest(Zip):
 		if type(index) is slice:
 			return super().__getitem__(index)
 		default = self.fillvalue
-		get = Sequence.get
 		return tuple(get(data, index, default) if level else data[index]
 			for data, level in self._levels())
 
@@ -1155,7 +1160,7 @@ class enumerated(SubSequence, InfiniteSequence, iterfunc=enumerate):
 		index, obj = value
 		if (r := self.start):
 			index = abs(index - r)
-		value = Sequence.get(self.data, index, SENTINEL)
+		value = get(self.data, index, SENTINEL)
 		return value is not SENTINEL and value == obj
 
 
@@ -1307,7 +1312,7 @@ class Arange(BaseCounter, BaseSequence):
 
 
 	def __and__(self, obj, /):
-		if isinstance(obj, BaseCounter):
+		if isinstance(obj, COUNTABLE):
 			if obj and (args := self._intersect(obj)) is not None:
 				start, step = args
 			
@@ -1328,7 +1333,7 @@ class Arange(BaseCounter, BaseSequence):
 			self.clear()
 		
 		elif self:
-			if isinstance(obj, BaseCounter):
+			if isinstance(obj, COUNTABLE):
 				if args := self._intersect(obj):
 					self.start, self.step = args
 	
@@ -1348,7 +1353,11 @@ class Arange(BaseCounter, BaseSequence):
 
 
 	def clear(self, /):
-		self.stop = self.start
+		if self:
+			if self.step > 0:
+				self.stop = self.start
+			else:
+				self.start = self.stop
 
 
 	def order_func(func, /):
@@ -1393,13 +1402,12 @@ class Arange(BaseCounter, BaseSequence):
 
 	flat = property(iter)
 
-	@property
-	def imag(self, /):
-		return type(self)(self.start.imag, self.stop.imag, self.step.imag)
+	@methodtools.set_name
+	def imag(name, /):
+		attrmap = mapper(op.attrgetter(name))
+		return property(lambda self, /: type(self)(attrmap(args(self))))
 
-	@property
-	def real(self, /):
-		return type(self)(self.start.real, self.stop.real, self.step.real)
+	denominator = numerator = real = imag
 
 	@property
 	def _last(self, /) -> Number:
@@ -1463,7 +1471,7 @@ class Arange(BaseCounter, BaseSequence):
 		self.step = step
 
 	def copy(self, /):
-		return type(self)(self.start, self.stop, self.step)
+		return type(self)(*args(self))
 
 	def sum(self, /) -> Number:
 		start = self.start
@@ -1472,6 +1480,26 @@ class Arange(BaseCounter, BaseSequence):
 		else:
 			return start * 0
 
+	def st_method(func, /):
+		@wraps(func)
+		def function(self, /):
+			if self:
+				return func(self.step, (((n := len(self)) **2) - 1) / n)
+			else:
+				return math.nan
+		return function
+
+	@st_method
+	def std(d, n, /):
+		return (d / ROOT12) * math.sqrt(n)
+
+	@st_method
+	def var(d, n, /):
+		return (d**2 / 12) * n
+
+	del st_method
+
+	
 	@bool_method
 	def mean(self, /) -> Number:
 		return (self.start + self._last) / 2
@@ -1528,5 +1556,24 @@ class Arange(BaseCounter, BaseSequence):
 	def torange(self, /) -> range:
 		return range(self.start, self.stop, self.step)
 
+	
+	def intersection(*ranges):
+		attrs = map(args, ranges)
+		self = ranges[0]
+		if len(ranges) > 1:
+			steps = []
+			ranges = sorted(ranges, key=op.attrgetter('step'), reverse=True)
+			starts, stops, steps = zip(*attrs)
+			print(steps[])
+			if ((step := steps[0]) == steps[-1] or
+				len(set(map(op.mod, starts, irepeat(step)))) == 1):
+				start = max(starts)
+				stop = min(stops)
+			return type(self)(start, stop, step)
+		else:
+			return self.copy()
+
+
+COUNTABLE = BaseCounter | range
 
 del maxsize, abc, ITII, UserDict, simple_compose, UserList
