@@ -262,11 +262,22 @@ def set_coname(func, /, dec=None):
 	return decorator
 
 
-def fromcls(cls, /):
+def copy_fromcls(cls, /):
 	@set_name
 	def factory(name, /):
 		return func_copy(getattr(cls, name))
 
+
+class fromcls:
+	'''Copy attrs from another class to the clas where it is defined ussing the
+	assigned names.'''
+	
+	def __init__(self, cls, /):
+		self.cls = cls
+
+	def __set_name__(self, cls, name, /):
+		setattr(cls, name, getattr(self.cls, name))
+		
 
 # class namespace:
 # 	'''Class that accepts dynamic attributes.

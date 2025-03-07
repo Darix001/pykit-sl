@@ -1,36 +1,42 @@
 from __future__ import annotations
-import itertools as it, math, operator as op, collections.abc as abc
-import more_itertools as mit
+
+import itertools as it, math, operator as op, collections.abc as abc, \
+more_itertools as mit
 
 
-from typing import Any, NamedTuple
-from sys import maxsize, path
-from dataclasses import dataclass, replace
-from collections.abc import Sequence
+from sys import maxsize
 from numbers import Number
-
-from . import methodtools
-from inspect import get_annotations
-from .cachetools import cached_property
-from .composetools import simple_compose
-from functools import wraps, update_wrapper as wrap
+from typing import Any, NamedTuple
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from collections import deque, UserDict, UserList
+from functools import wraps, update_wrapper as wrap
+
+
+from .methodtools import (
+	unassigned_method,
+	dunder_method,
+	partializer,
+	MethodType,
+	add_method,
+	set_name,
+	fromcls
+	)
+from .composetools import simple_compose
 
 
 from_iterable = it.chain.from_iterable
 irepeat = it.repeat
-args = op.attrgetter('start', 'stop', 'step')
+rargs = op.attrgetter('start', 'stop', 'step')
 div_index = {0, -1}.__contains__
-data_method = methodtools.dunder_method('data')
+data_method = dunder_method('data')
 data_func = data_method.with_func
 
 FROM_ITERTOOLS = 1
 R_NONE = irepeat(None)
-EMPTY_ITERATOR = iter(b'')
-EMPTY_RANGE = range(0)
 NEW_OBJ = classmethod(object.__new__)
 
-mapper = methodtools.partializer(map)
+mapper = partializer(map)
 
 MAP = [it.repeat, from_iterable, reversed, it.islice,
 op.itemgetter(slice(None, None, -1)), op.getitem,
@@ -72,7 +78,7 @@ def getslices(data:Sequence, subindices:abc.Iterator[abc.Iterator[int]]
 def checker(cls, /):
 	'''Creates a Check method for SubSequence subclasses'''
 
-	return methodtools.unassigned_method(
+	return unassigned_method(
 		lambda self, obj, /: obj.__class__ is cls and len(obj) == self.r)
 
 
@@ -106,7 +112,7 @@ def comb_len(cls, /) -> type:
 	
 	def __len__(self, /):
 		return func(len(self.data), self.r)
-	methodtools.add_method(cls, __len__)
+	add_method(cls, __len__)
 	
 	return cls
 
@@ -118,24 +124,33 @@ def multidata(cls, /) -> type:
 	if len_func := namespace.get('__len__'):
 		def __len__(self, /):
 			return len_func(get_sizes(self.data))
-		methodtools.add_method(cls, __len__)
+		add_method(cls, __len__)
 
 	if bool_func := namespace.get('__bool__'):
-		methodtools.add_method(cls, data_func(bool_func), '__bool__')
+		add_method(cls, data_func(bool_func), '__bool__')
 
 	return cls
 
-
-def slicer(func, /) -> abc.Callable:
+def slicer(func, /):
 	return wrap(lambda obj, /, *args: func(obj, slice(*args)), func)
 
 
 @slicer
-def islice(data:Sequence, slicer, /):
+def islice(data:Sequence, /, slicer):
 	if isinstance(data, islice_):
 		return data._replace(r=data.r[slicer])
-	else:
-		return islice_(data, MAXSIZE_RANGE[slicer])
+
+	elif slicer.start is slicer.stop is None:
+		match slicer.step:
+			case None|1:
+				return SequenceView(data)
+
+			case -1:
+				return ReverseView(data)
+
+	return islice_(data, MAXSIZE_RANGE[slicer])
+
+		
 
 
 def repeat(object:Any, times:int) -> Repeat:
@@ -147,38 +162,26 @@ def full(fill_value:Number, size:int) -> Full:
 
 
 
-def get(self, index, default=None, /):
+def get(data:Sequence, index:int, default:Any=None, /):
 	'''Return the value for key if key is in the sequence, else default.'''
 	try:
-		return self[index]
+		return data[index]
 	except IndexError:
 		return default
 
 
-def all_equals(self, /):
-	return self.count(self[0]) == len(self)
+def all_equals(data:Sequence, /) -> bool:
+	'''Returns True if all items on sequence are equals'''
+	return data.count(data[0]) == len(data)
 
 
-def iter_index(self:Sequence, value, start:int=0, stop:int=maxsize):
-	try:
-		while True:
-			yield (start := self.index(value, start, stop))
-			start += 1
-	except (ValueError, TypeError):
-		return
-	else:
-		from more_itertools import iter_index
-		yield from iter_index(islice(self, start, stop), value)
-
-
-def sub(self, values, start:int=0, stop:int=maxsize, /):
-	diff = 1
+def sub(data:Sequence, values:Sequence, start:int=0, stop:int=maxsize, /):
 	first = values[0]
 	values = islice_(values, MAXSIZE_RANGE[diff:])
 	while diff:
-		index = start = self.index(first, start, stop)
+		index = start = data.index(first, start, stop)
 		for start, value in enumerate(values, start + diff):
-			if diff := value != self[start]:
+			if diff := value != data[start]:
 				start += diff
 				break
 	return index
@@ -193,7 +196,7 @@ class BaseSequence(Sequence):
 		if factory := cls.iterfunc:
 			cls.iterfunc = None
 			iterfunc = factory(None)
-			methodtools.add_method(cls, factory(True), '__reversed__')
+			add_method(cls, factory(True), '__reversed__')
 
 		elif iterfunc:
 			if iterfunc == FROM_ITERTOOLS:
@@ -207,7 +210,7 @@ class BaseSequence(Sequence):
 		else:
 			return
 
-		methodtools.add_method(cls, iterfunc)
+		add_method(cls, iterfunc)
 
 	
 	def value_error(self, value, /):
@@ -219,14 +222,35 @@ class BaseSequence(Sequence):
 		
 @dataclass(frozen=True)
 class SequenceView(BaseSequence):
-	'''Base Class for All Sequences off this module.'''
+	'''A view over a new sequence.'''
 	data:Sequence
 
 	__reversed__ = __bool__ = data_method
 
-	__len__ = __contains__ = __iter__ = methodtools.fromcls(UserDict)
+	__len__ = __contains__ = __iter__ = fromcls(UserDict)
 
-	__getitem__ = __mul__ = index = count = methodtools.fromcls(UserList)
+	__getitem__ = __mul__ = index = count = fromcls(UserList)
+
+
+class ReverseView(SequenceView):
+	'''Reversed View of a sequence data'''
+	def __getitem__(self, index, /):
+		if type(index) is slice:
+			...
+		else:
+			return self.data[~index]
+
+	__reversed__ = SequenceView.__iter__
+
+	__iter__ = SequenceView.__reversed__
+
+	def index(self, value:Any, start=0, stop=None, /):
+		n = len(data := self.data)
+		getindex = data.index
+		if not start and stop is None:
+			return ~getindex(value)
+		else:
+			return ~getindex(value, ~stop + n, ~start + n)
 
 
 class Size(SequenceView):
@@ -292,10 +316,6 @@ class indexed(Size, ranged):
 
 
 class islice_(indexed):
-	'''islice(sequence, stop) --> islice_ object
-	islice(sequence, start, stop[, step]) --> islice_ object
-	Emulates an slice of a sequence.'''
-
 	def __reversed__(self, /):
 		size = len(data := self.data)
 		if start := (r := self.r).start:
@@ -305,7 +325,7 @@ class islice_(indexed):
 	
 	def __iter__(self, /):
 		gen = iter(data := self.data)
-		start, stop, step = args(r := self.r)
+		start, stop, step = rargs(r := self.r)
 		if start:
 			try:
 				gen.__setstate__(start)
@@ -444,10 +464,10 @@ class chain(BaseSequence):
 
 	__contains__, count = map(cc_func, (any, sum), CC_MAP)
 
-	def index(self, value, start:int=SENTINEL, stop:int=maxsize, /) -> int:
+	def index(self, value, start=0, stop=None, /) -> int:
 		data = self.data
 		size = [*it.accumulate(get_sizes(data), initial=0)]
-		if start is SENTINEL:
+		if stop is None and not start:
 			for data, size in zip(data, size):
 				try:
 					value = data.index(value)
@@ -566,10 +586,10 @@ class mul(Sized):
 	def count(self, value, /) -> int:
 		return (r := self.times) and self.data.count(value) * r
 
-	def index(self, value, start:int=SENTINEL, stop:int=maxsize, /) -> int:
+	def index(self, value, start=0, stop=None, /) -> int:
 		index = self.data.index
 		if (r := self.times):
-			if start is SENTINEL:
+			if stop is None and not start:
 				return index(value)
 			div, start = divmod(start, r)
 			if div_index(div):
@@ -596,11 +616,11 @@ class repeats(mul):
 			return from_iterable(fmap(data, irepeat(self.times)))
 		return __iter__
 
-	def index(self, value, start:int=SENTINEL, stop:int=maxsize, /) -> int:
+	def index(self, value, start=0, stop=None, /) -> int:
 		if not (r := self.times):
 			self.value_error(value)
 		index = self.data.index
-		if start is SENTINEL:
+		if stop is None and not start:
 			return index(value) * r
 		start, mod = divmod(start, r)
 		return (index(value, start, stop//r) * r) + mod
@@ -649,7 +669,7 @@ class chunked(Sized, SubSequence):
 			row, col = index
 			return data[(row * n) + col]
 		elif index_type is slice:
-			pass
+			...
 		else:
 			index *= n
 			if data := self._getitem(data, slice(index, (index + n) or None)):
@@ -669,7 +689,7 @@ class chunked(Sized, SubSequence):
 
 	def iterfunc(r, /):
 		def __iter__(self, /):
-			return map(methodtools.MethodType(islice_, self.data),
+			return map(MethodType(islice_, self.data),
 				it.starmap(range, self._indexes(r)))
 		return __iter__
 
@@ -1012,6 +1032,7 @@ class cycle(InfiniteSequence):
 
 @dataclass(order=True)
 class BaseCounter:
+	'''Case class for counter-like classes.'''
 	start:Number=0
 	step:Number=1
 
@@ -1171,6 +1192,15 @@ class enumerated(SubSequence, InfiniteSequence, iterfunc=enumerate):
 
 @dataclass(init=False)
 class Arange(BaseCounter, BaseSequence):
+	'''A mutable numeric range, with math, statistics and aritmethical
+	methods, as well as support for set operations like intersection or the
+	& operator.
+	Example:
+	number_list = Arange(0, 10, 2.)
+	number_list[-3]	
+	#prints 4.0
+
+	 '''
 	stop:Number=0
 
 	@slicer
@@ -1407,10 +1437,12 @@ class Arange(BaseCounter, BaseSequence):
 
 	flat = property(iter)
 
-	@methodtools.set_name
+	rargs = property(rargs)
+
+	@set_name
 	def imag(name, /):
 		attrmap = mapper(op.attrgetter(name))
-		return property(lambda self, /: type(self)(attrmap(args(self))))
+		return property(lambda self, /: type(self)(attrmap(rargs(self))))
 
 	denominator = numerator = real = imag
 
@@ -1476,7 +1508,7 @@ class Arange(BaseCounter, BaseSequence):
 		self.step = step
 
 	def copy(self, /):
-		return type(self)(*args(self))
+		return type(self)(*self._args)
 
 	def sum(self, /) -> Number:
 		start = self.start
@@ -1559,18 +1591,18 @@ class Arange(BaseCounter, BaseSequence):
 
 
 	def torange(self, /) -> range:
-		return range(self.start, self.stop, self.step)
+		return range(*self._args)
 
 	
 	def intersection(*ranges):
 		self = ranges[0]
 		if len(ranges) > 1:
 			ranges = sorted(ranges, key=op.attrgetter('step'), reverse=True)
-			starts, stops, steps = zip(*map(args, ranges))
+			starts, stops, steps = zip(*map(rargs, ranges))
 			mod = MAP[-1]
 			step = steps[0]
 			
-			if step == steps[-1] or not sum(mod(irepeat(step), steps[1:])):
+			if step == steps[-1] or not any(mod(irepeat(step), steps[1:])):
 				if mit.all_equal(mod(starts, steps)):
 					start = max(starts)
 					stop = min(stops)
@@ -1578,7 +1610,7 @@ class Arange(BaseCounter, BaseSequence):
 					return self._empty
 			
 			else:
-				pass
+				...
 				#PENDING RANGES WITH DIFFERENTS STEPS THAT ARE NOT MULTIPLE
 
 			return type(self)(start, stop, step)
@@ -1588,4 +1620,5 @@ class Arange(BaseCounter, BaseSequence):
 
 COUNTABLE = BaseCounter | range
 
-del maxsize, abc, ITII, UserDict, simple_compose, UserList
+del (maxsize, abc, ITII, UserDict, simple_compose, UserList, set_name,
+	partializer, dunder_method, unassigned_method, fromcls)
