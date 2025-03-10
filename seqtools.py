@@ -1,3 +1,4 @@
+'''Seq'''
 from __future__ import annotations
 
 import itertools as it, math, operator as op, collections.abc as abc, \
@@ -14,13 +15,13 @@ from functools import wraps, update_wrapper as wrap
 
 
 from .methodtools import (
-	unassigned_method,
-	dunder_method,
-	partializer,
-	MethodType,
-	add_method,
+	fromcls,
 	set_name,
-	fromcls
+	add_method,
+	MethodType,
+	partializer,
+	dunder_method,
+	unassigned_method,
 	)
 from .composetools import simple_compose
 
@@ -188,6 +189,7 @@ def sub(data:Sequence, values:Sequence, start:int=0, stop:int=maxsize, /):
 
 
 class BaseSequence(Sequence):
+	'''Base class for all classes in this module.'''
 	iterfunc = None
 	_replace = replace
 	_new = NEW_OBJ
@@ -1041,15 +1043,15 @@ class BaseCounter:
 			mx, mn = mn, mx
 			mnstep, step = step, mnstep
 
-		if step % mnstep:
-			mxstep = step
-			step = step * mn.step
-			start = (step - mxstep) + mx.start
+		start, mnstart = mx.start, mn.start
 		
-		else:
-			start, mnstart = mx.start, mn.start
+		if step % mnstep:
+			step *= mnstep
+			...
 			
-			if start % step != mnstart % mnstep:
+		else:
+			
+			if (start % 2 != step % 2) is not (mnstart % 2 != mnstep % 2):
 				return
 			
 			if start < mnstart:
@@ -1063,15 +1065,6 @@ class BaseCounter:
 
 	def _value_to_index(self, number, /):
 		return divmod(number - self.start, self.step)
-
-	@counter_expand_method
-	def expandleft(self, steps, /):
-		self.start -= steps
-
-	def popleft(self, /) -> Number:
-		self.start = (start := self.start) + self.step
-		return start
-
 		
 
 class count(BaseCounter, InfiniteSequence, iterfunc=FROM_ITERTOOLS):
@@ -1143,6 +1136,14 @@ class count(BaseCounter, InfiniteSequence, iterfunc=FROM_ITERTOOLS):
 		if index < 0 or mod:
 			self.value_error(number)
 		return math.trunc(index)
+	
+	@counter_expand_method
+	def expandleft(self, steps, /):
+		self.start -= steps
+
+	def popleft(self, /) -> Number:
+		self.start = (start := self.start) + self.step
+		return start
 
 
 @dataclass(frozen=True)
@@ -1408,23 +1409,15 @@ class Arange(BaseCounter, BaseSequence):
 				raise TypeError("Can't compare Aranges with different sizes.")
 		return function
 
-	@order_func
-	def __gt__(sstart, ostart, sstep, ostep, /):
-		return sstart > ostart and sstep >= ostep
+	
+	def __eq__(self, obj, /):
+		return (isinstance(obj, COUNTABLE) and self.start == obj.start and
+		(step := self.step) == obj.step and abs(self.stop - obj.stop) < step)
 
-	@order_func
-	def __lt__(sstart, ostart, sstep, ostep, /):
-		return sstart < ostart and sstep <= ostep
 
-	@order_func
-	def __ge__(sstart, ostart, sstep, ostep, /):
-		return sstart >= ostart and sstep >= ostep
-
-	@order_func
-	def __le__(sstart, ostart, sstep, ostep, /):
-		return sstart <= ostart and sstep <= ostep
-
-	del order_func
+	def __ne__(self, obj, /):
+		return (isinstance(obj, COUNTABLE) or self.start != obj.start or
+		(step := self.step) != obj.step or abs(self.stop - obj.stop) >= step)
 
 
 	@property
@@ -1437,7 +1430,7 @@ class Arange(BaseCounter, BaseSequence):
 
 	flat = property(iter)
 
-	rargs = property(rargs)
+	_args = property(rargs)
 
 	@set_name
 	def imag(name, /):
@@ -1590,8 +1583,14 @@ class Arange(BaseCounter, BaseSequence):
 	del median_method
 
 
-	def torange(self, /) -> range:
-		return range(*self._args)
+	def tocls(self, cls, /) -> range:
+		return cls(*self._args)
+
+	pyrange = property(op.methodcaller('tocls', range))
+
+	@classmethod
+	def fromobj(cls, obj, /):
+		return cls(*rargs(obj))
 
 	
 	def intersection(*ranges):
