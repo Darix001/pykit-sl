@@ -1053,16 +1053,17 @@ class BaseCounter:
 		g = greatest common divissor between steps'''
 		start, b = self.start, other.start
 
-		if (ss := (s1 := self.step) == (s2 := other.step)) == 1:
+		if (ss := (step := self.step) == (s2 := other.step)) == 1:
 			if start < b:
 				start = b
-			self.step = s1
-
+		
 		else:
+			s1 = step
+		
 			if ss:
-				g = step = s1
+				g = step
 			else:
-				if (step := s1) < (g := s2):
+				if s1 < (g := s2):
 					step, g = g, step
 
 				if step % g:
@@ -1075,11 +1076,12 @@ class BaseCounter:
 
 			# Solve for the smallest non-negative n
 			# Modular inverse of (s1 // g) mod (s2 // g)
-			mod_inv = (s1 // g ** -1) % (s2g := s2 // g)
-			n = (diff // g * mod_inv) % s2g
-			start += n * s1  # First intersection point
-			self.step = step
+			mod_inv = (1 / (s1 // g)) % (s2g := s2 // g)
+			
+			# First intersection point
+			start += ((diff // g * mod_inv) % s2g) * s1 
 
+		self.step = step
 		self.start = start
 		return True
 
@@ -1149,6 +1151,18 @@ class count(BaseCounter, InfiniteSequence, iterfunc=FROM_ITERTOOLS):
 			return self if self._intersect_update(obj) else Arange(0, 0)
 		else:
 			return NotImplemented
+
+	def __add__(self, obj, /):
+		type(self)(self.start + obj, self.step)
+
+	def __radd__(self, obj, /):
+		type(self)(obj + self.start, self.step)
+
+	def __sub__(self, obj, /):
+		type(self)(self.start + obj, self.step)
+
+	def __rsub__(self, obj, /):
+		type(self)(obj + self.start, self.step)
 
 	def count(self, number, /) -> int:
 		return number in self[start:stop]
@@ -1400,28 +1414,30 @@ class Arange(BaseCounter, BaseSequence):
 				self.start = self.stop
 
 
-	def order_func(func, /):
-		@wraps(func)
-		def function(self, obj, /):
-			if type(self) is not type(obj):
-				return NotImplemented
+	# def order_func(func, /):
+	# 	@wraps(func)
+	# 	def function(self, obj, /):
+	# 		if type(self) is not type(obj):
+	# 			return NotImplemented
 			
-			elif len(self) == len(obj):
-				return func(self.start, obj.start, self.step, obj.step)
+	# 		elif len(self) == len(obj):
+	# 			return func(self.start, obj.start, self.step, obj.step)
 
-			else:
-				raise TypeError("Can't compare Aranges with different sizes.")
-		return function
+	# 		else:
+	# 			raise TypeError("Can't compare Aranges with different sizes.")
+	# 	return function
 
 	
 	def __eq__(self, obj, /):
-		return (isinstance(obj, COUNTABLE) and self.start == obj.start and
-		(step := self.step) == obj.step and abs(self.stop - obj.stop) < step)
+		#sbv = same boolean value
+		#nv = no values
+		if isinstance(obj, Arange):
+			nv  = (sbv := bool(self) == bool(ob)) == False
+			return (sbv and nv or self.start == obj.start and
+				self.step == obj.step and self._last == other._last)
 
-
-	def __ne__(self, obj, /):
-		return (isinstance(obj, COUNTABLE) or self.start != obj.start or
-		(step := self.step) != obj.step or abs(self.stop - obj.stop) >= step)
+		else:
+			return NotImplemented
 
 
 	@property
@@ -1627,8 +1643,6 @@ class Arange(BaseCounter, BaseSequence):
 					self.stop = stop
 			else:
 				self.clear()
-
-			
 
 	def intersection(self, /, *ranges):
 		'''Returns the intersection between multiple ranges as a new Arange'''
