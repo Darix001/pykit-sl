@@ -1,31 +1,24 @@
-import operator, re, collections.abc as abc, itertools as it, math
-
+import operator as op, re, collections.abc as abc, itertools as it, math
+from types import MethodType
 from numbers import Number
 from bitarray import bitarray
 
 
 bitarray = bitarray('1')
-operators = {
-    '':operator.add,
-    '+':operator.add,
-    '-':operator.sub,
-    '*':operator.mul,
-    '/':operator.truediv,
-    '&':operator.and_,
-    '|':operator.or_,
-    '^':operator.xor,
-    '%':operator.mod,
-    '@':operator.matmul,
-    '//':operator.floordiv,
-    '**':operator.pow,
-    '>':operator.gt,
-    '>=':operator.ge,
-    '<':operator.lt,
-    '<=':operator.le,
-    '==':operator.eq,
-    '!=':operator.ne
+operator_funcs = {
+    '':op.add, '+':op.add, '-':op.sub, '*':op.mul, '/':op.truediv,
+    '//':op.floordiv, '**':op.pow,
+    
+    '&':op.and_, '|':op.or_, '^':op.xor, '%':op.mod, '@':op.matmul,
+    
+     '>':op.gt, '>=':op.ge, '<':op.lt, '<=':op.le,
+    '==':op.eq, '!=':op.ne
     }
 re = re.compile(r'[-+]?(?:\d*\.*\d+)')
+
+
+def partialop(symbol:str, value:Number, /):
+    return MethodType(operator_funcs[symbol], value)
 
 
 def eval(string:str, /, dtype:abc.Callable = int, start:int = 0) -> Number:
@@ -41,10 +34,16 @@ def eval(string:str, /, dtype:abc.Callable = int, start:int = 0) -> Number:
 
         del operator[0]
 
-        operator = map(operators.get, operator)
+        operator = map(operator_funcs.get, operator)
 
-        for n, operator in zip(numbers, operator):
-            x = operator(x, n)
+        try:
+            for n, operator in zip(numbers, operator):
+                x = operator(x, n)
+        except Exception as e:
+            
+        finally:
+            pass
+
         string = string.replace(substring, f"{x!s}")
 
     return dtype(string)

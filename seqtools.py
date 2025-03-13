@@ -41,7 +41,7 @@ mapper = partializer(map)
 
 MAP = [it.repeat, from_iterable, reversed, it.islice,
 op.itemgetter(slice(None, None, -1)), op.getitem,
-op.floordiv, op.mod, len, op.contains, op.countOf]
+op.floordiv, op.attrgetter('stop'), len, op.contains, op.countOf]
 
 MAP[:] = map(mapper, MAP)
 
@@ -237,10 +237,12 @@ class SequenceView(BaseSequence):
 class ReverseView(SequenceView):
 	'''Reversed View of a sequence data'''
 	def __getitem__(self, index, /):
+		data = self.data
 		if type(index) is slice:
-			...
+			data = data[slice(*rargs(range(len(data))[index][::-1]))]
+			return type(self)(data)
 		else:
-			return self.data[~index]
+			return data[~index]
 
 	__reversed__ = SequenceView.__iter__
 
@@ -1038,26 +1040,48 @@ class BaseCounter:
 	start:Number=0
 	step:Number=1
 
-	def _intersect(mx, mn, /):
-		if (step := mx.step) < (mnstep := mn.step):
-			mx, mn = mn, mx
-			mnstep, step = step, mnstep
+	def _intersect_update(self, other, /):
+		'''The algorithm to get the first intersection point was provided
+		by chatGPT
+		#By assigning self.start as the final start variable we save few lines
+		of code.
+		start = self.start 
+		b = other.start
+		s1 = self.step
+		s2 = other.step
+		diff = Difference between starts
+		g = greatest common divissor between steps'''
+		start, b = self.start, other.start
 
-		start, mnstart = mx.start, mn.start
-		
-		if step % mnstep:
-			step *= mnstep
-			...
-			
+		if (ss := (s1 := self.step) == (s2 := other.step)) == 1:
+			if start < b:
+				start = b
+			self.step = s1
+
 		else:
-			
-			if (start % 2 != step % 2) is not (mnstart % 2 != mnstep % 2):
-				return
-			
-			if start < mnstart:
-				start = mnstart
+			if ss:
+				g = step = s1
+			else:
+				if (step := s1) < (g := s2):
+					step, g = g, step
 
-		return start, step
+				if step % g:
+					step *= g
+					g = 1
+
+			# If g doesn't divide diff, no solution
+			if (diff := b - start) % g:
+				return
+
+			# Solve for the smallest non-negative n
+			# Modular inverse of (s1 // g) mod (s2 // g)
+			mod_inv = (s1 // g ** -1) % (s2g := s2 // g)
+			n = (diff // g * mod_inv) % s2g
+			start += n * s1  # First intersection point
+			self.step = step
+
+		self.start = start
+		return True
 
 
 	def _index_to_value(self, index, /):
@@ -1106,15 +1130,15 @@ class count(BaseCounter, InfiniteSequence, iterfunc=FROM_ITERTOOLS):
 		return index >= 0 and not mod
 
 	def __and__(self, obj, /):
-		if isinstance(obj, BaseCounter):
-			if obj and (args := self._intersect(obj)) is not None:
-				if (stop := obj.stop) is self.stop:
-					return type(self)(*args)
-				else:
-					start, step = args
-					return type(obj)(start, stop, step)
+		if isinstance(obj, COUNTABLE):
+			self = self.copy()
+			if obj and (args := self._intersect_update(obj)):
+				if (stop := obj.stop) is not self.stop:
+					self.__class__ = Arange
+					self.stop = stop
+				return self
 			else:
-				return Arange(zero := self.step * 0, zero)
+				return Arange(zero := self.start * 0, zero)
 			
 		else:
 			return NotImplemented
@@ -1122,9 +1146,7 @@ class count(BaseCounter, InfiniteSequence, iterfunc=FROM_ITERTOOLS):
 
 	def __iand__(self, obj, /):
 		if (cls := type(self)) is type(obj):
-			if args := self._intersect(obj):
-				self.start, self.step = args
-			return ()
+			return self if self._intersect_update(obj) else Arange(0, 0)
 		else:
 			return NotImplemented
 
@@ -1144,6 +1166,9 @@ class count(BaseCounter, InfiniteSequence, iterfunc=FROM_ITERTOOLS):
 	def popleft(self, /) -> Number:
 		self.start = (start := self.start) + self.step
 		return start
+
+	def copy(self, /):
+		return type(self)(self.start, self.step)
 
 
 @dataclass(frozen=True)
@@ -1349,40 +1374,19 @@ class Arange(BaseCounter, BaseSequence):
 
 	def __and__(self, obj, /):
 		if isinstance(obj, COUNTABLE):
-			if obj and (args := self._intersect(obj)) is not None:
-				start, step = args
-			
-				if (stop := self.stop) > (ostop := obj.stop):
-					stop = ostop
-			
-				return type(self)(start, stop, step)
-			
-			else:
-				return self._empty
-		
+			(self := self.copy())._intersect_update(obj)
+			return self
 		else:
 			return NotImplemented
 
 	
 	def __iand__(self, obj, /):
-		if not obj:
-			self.clear()
-		
-		elif self:
-			if isinstance(obj, COUNTABLE):
-				if args := self._intersect(obj):
-					self.start, self.step = args
-	
-					if self.stop > (stop := obj.stop):
-						self.stop = stop
-				else:
-					self.clear()
-					
-	
-			else:
-				return NotImplemented
-		
-		return self
+		if isinstance(obj, COUNTABLE):
+			self._intersect_update(obj)
+			return self
+		else:
+			return NotImplemented
+
 
 	def _newlims(self, start, stop, /):
 		return type(self)(start, stop, self.step)
@@ -1426,28 +1430,38 @@ class Arange(BaseCounter, BaseSequence):
 
 	@property
 	def ndim(self, /):
-		return 1	
+		return 1
 
-	flat = property(iter)
-
-	_args = property(rargs)
-
-	@set_name
-	def imag(name, /):
-		attrmap = mapper(op.attrgetter(name))
-		return property(lambda self, /: type(self)(attrmap(rargs(self))))
-
-	denominator = numerator = real = imag
+	flat, _args, pyrange = map(property,
+		(iter, rargs, op.methodcaller('tocls', range)))
 
 	@property
 	def _last(self, /) -> Number:
-		stop = self.stop
-		step = self.step
-		return (stop - (step - (self.start % step) - (stop % step)))
+		self._index_to_value(self._lastindex)
 
 	@property
 	def _empty(self, /):
 		return type(self)(zero := self.start * 0, zero)
+
+	def _intersect_update(self, obj, /):
+		if not self:
+			return
+
+		elif obj and (has_intersection := super()._intersect_update(obj)):
+			if self.stop > (stop := obj.stop):
+				self.stop = stop
+			return has_intersection
+
+		else:
+			self.clear()
+
+
+	@set_name
+	def imag(name, /):
+		attrmap = mapper(op.attrgetter(name))
+		return property(lambda self, /: type(self)(*attrmap(rargs(self))))
+
+	denominator = numerator = real = imag
 
 
 	def count(self, value, /) -> int:
@@ -1551,9 +1565,8 @@ class Arange(BaseCounter, BaseSequence):
 		return self._last if growing else self.start
 	
 	@property
-	def _lastindex(self, /):
-		step = self.step
-		return math.ceil((self.stop - step - self.start) / step)
+	def _lastindex(self, /) -> int:
+		return len(self) - 1
 
 	@minmax
 	def argmax(self, growing, /):
@@ -1586,36 +1599,42 @@ class Arange(BaseCounter, BaseSequence):
 	def tocls(self, cls, /) -> range:
 		return cls(*self._args)
 
-	pyrange = property(op.methodcaller('tocls', range))
-
 	@classmethod
 	def fromobj(cls, obj, /):
 		return cls(*rargs(obj))
 
+
+	def adjust(self, /):
+		'''Adjust the stop argument of the range to match exactly with the step.
+		If the arange is empty, the arange is best left unchanged.
+		
+		Example:
+		x = Arange(0, 95, 4)
+		x.adjust()
+		print(x) #prints Arange(0, 96, 4)
+		'''
+		last, step = self._last, self.step
+		if self and self.stop - last != self.step:
+			self.stop = last + step
+
 	
-	def intersection(*ranges):
-		self = ranges[0]
-		if len(ranges) > 1:
-			ranges = sorted(ranges, key=op.attrgetter('step'), reverse=True)
-			starts, stops, steps = zip(*map(rargs, ranges))
-			mod = MAP[-1]
-			step = steps[0]
-			
-			if step == steps[-1] or not any(mod(irepeat(step), steps[1:])):
-				if mit.all_equal(mod(starts, steps)):
-					start = max(starts)
-					stop = min(stops)
-				else:
-					return self._empty
-			
+	def intersection_update(self, /, *ranges):
+		'''Update self by the intersection between multiple ranges.'''
+		#If there is any empty range, there is no intersection.
+		if self:
+			if all(ranges) and all(map(super()._intersect_update, ranges)):
+				if self.stop > (stop := min(MAP[-1](ranges))):
+					self.stop = stop
 			else:
-				...
-				#PENDING RANGES WITH DIFFERENTS STEPS THAT ARE NOT MULTIPLE
+				self.clear()
 
-			return type(self)(start, stop, step)
-		else:
-			return self.copy()
+			
 
+	def intersection(self, /, *ranges):
+		'''Returns the intersection between multiple ranges as a new Arange'''
+		(self := self.copy()).intersection_update(*ranges)
+		return self
+		
 
 COUNTABLE = BaseCounter | range
 

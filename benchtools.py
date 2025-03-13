@@ -5,6 +5,7 @@ from collections import Counter
 from collections.abc import Callable
 from more_itertools import repeatfunc
 
+
 fastest_timer = partial(min, key=Timer.timeit)
 
 
