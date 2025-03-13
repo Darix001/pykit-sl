@@ -374,10 +374,6 @@ class islice_(indexed):
 		return (self.__class__ is value.__class__ and
 			self.data is value.data and self.r == value.r)
 
-	def __ne__(self, value, /):
-		return (self.__class__ is not value.__class__ or
-			 self.data is not value.data or self.r != value.r)
-
 	def _index(self, value, r, /) -> int:
 		if r:
 			data = self.data
