@@ -1,9 +1,9 @@
-'''Seq'''
+'''This library is directly inspired by itertools, as the idea of conceiving a library
+for dealing with seqtools in a more efficient way.'''
 from __future__ import annotations
 
 import itertools as it, math, operator as op, collections.abc as abc, \
 more_itertools as mit
-
 
 from sys import maxsize
 from numbers import Number
@@ -13,10 +13,11 @@ from dataclasses import dataclass, replace
 from collections import deque, UserDict, UserList
 from functools import wraps, update_wrapper as wrap
 
-
+from .rangetools import rargs, slicer
 from .methodtools import (
 	fromcls,
 	set_name,
+	constfunc,
 	add_method,
 	MethodType,
 	partializer,
@@ -28,7 +29,6 @@ from .composetools import simple_compose
 
 from_iterable = it.chain.from_iterable
 irepeat = it.repeat
-rargs = op.attrgetter('start', 'stop', 'step')
 div_index = {0, -1}.__contains__
 data_method = dunder_method('data')
 data_func = data_method.with_func
@@ -53,7 +53,6 @@ ITII = abc.Iterator[tuple[int, int]]
 NWISE_ITER = {1:zip, 2:it.pairwise}
 MAXSIZE_RANGE = range(maxsize)
 SENTINEL = object()
-ROOT12 = math.sqrt(12)
 
 
 def efficient_nwise(iterable:abc.Iterable, n:int) -> abc.Generator[deque]:
@@ -61,8 +60,7 @@ def efficient_nwise(iterable:abc.Iterable, n:int) -> abc.Generator[deque]:
 	collections.deque object.'''
 	
 	data = deque(it.islice(iterable := iter(iterable), n - 1), n)
-	for _ in map(data.append, iterable):
-		yield data
+	return it.dropwhile(data.append, iterable)
 
 
 def getitems(data:Sequence, items, /) -> abc.Iterator:
@@ -98,13 +96,6 @@ def bool_method(func, /) -> abc.Callable:
 	return function
 
 
-def counter_expand_method(func, /) -> abc.Callable:
-	@wraps(func)
-	def function(self, n:int, /):
-		return func(self, self.step * n)
-	return function
-
-
 def comb_len(cls, /) -> type:
 	'''Decorator for combinations and permutation classes that computes their get_sizes based
 	on their respective math function.'''
@@ -132,16 +123,12 @@ def multidata(cls, /) -> type:
 
 	return cls
 
-def slicer(func, /):
-	return wrap(lambda obj, /, *args: func(obj, slice(*args)), func)
 
-
-@slicer
-def islice(data:Sequence, /, slicer):
+def efficient_slice(data:Sequence, slicer:slice):
 	if isinstance(data, islice_):
 		return data._replace(r=data.r[slicer])
 
-	elif slicer.start is slicer.stop is None:
+	elif not slicer.start and slicer.stop is None:
 		match slicer.step:
 			case None|1:
 				return SequenceView(data)
@@ -149,18 +136,20 @@ def islice(data:Sequence, /, slicer):
 			case -1:
 				return ReverseView(data)
 
-	return islice_(data, MAXSIZE_RANGE[slicer])
-
+	return efficient_slice(data, range(len(data))[slicer])
 		
+
+islice = slicer(efficient_slice)		
+
 
 
 def repeat(object:Any, times:int) -> Repeat:
 	return Repeat(range(times if times > 0 else 0), object)
 
-
-def full(fill_value:Number, size:int) -> Full:
-	return Full(range(times if times > 0 else 0), fill_value)
-
+def progression(start:Number, step:Number, /, n:int):
+	if n < 0:
+		raise ValueError("n must be a positive integer")
+	return Count(range(n), start, step)
 
 
 def get(data:Sequence, index:int, default:Any=None, /):
@@ -190,6 +179,7 @@ def sub(data:Sequence, values:Sequence, start:int=0, stop:int=maxsize, /):
 
 class BaseSequence(Sequence):
 	'''Base class for all classes in this module.'''
+	__slots__ = ()
 	iterfunc = None
 	_replace = replace
 	_new = NEW_OBJ
@@ -225,28 +215,47 @@ class BaseSequence(Sequence):
 @dataclass(frozen=True)
 class SequenceView(BaseSequence):
 	'''A view over a new sequence.'''
+	__slots__ = 'data'
 	data:Sequence
+	index = count = fromcls(UserList)
+
+	def __getitem__(self, index, /):
+		data = self.data
+		if type(index) is slice:
+			if len(r := range(n := len(data))[index]) == n:
+				if r.step > 0:
+					return self
+				else:
+					return ReverseView(data)
+			return islice_(data, r)
+		else:
+			return data[index]
 
 	__reversed__ = __bool__ = data_method
 
 	__len__ = __contains__ = __iter__ = fromcls(UserDict)
 
-	__getitem__ = __mul__ = index = count = fromcls(UserList)
+	def __mul__(self, n, /):
+		return mul(self.data, n)
 
 
 class ReverseView(SequenceView):
 	'''Reversed View of a sequence data'''
+	__slots__ = ()
+	__reversed__ = SequenceView.__iter__
+	__iter__ = SequenceView.__reversed__
+
 	def __getitem__(self, index, /):
 		data = self.data
 		if type(index) is slice:
-			data = data[slice(*rargs(range(len(data))[index][::-1]))]
-			return type(self)(data)
+			if len(r := range(n := len(data) -1, -1, -1)[index]) == n:
+				if step < 0:
+					return SequenceView(data)
+				else:
+					return self
+			return islice_(data, r)
 		else:
 			return data[~index]
-
-	__reversed__ = SequenceView.__iter__
-
-	__iter__ = SequenceView.__reversed__
 
 	def index(self, value:Any, start=0, stop=None, /):
 		n = len(data := self.data)
@@ -258,6 +267,7 @@ class ReverseView(SequenceView):
 
 
 class Size(SequenceView):
+	__slots__ = ()
 	'''Base Class for sequence wrappers that transform their sequence size.'''
 
 	def __bool__(self, /):
@@ -270,10 +280,7 @@ class ranged(BaseSequence):
 
 	def __getitem__(self, index, /):
 		r = self.r[index]
-		if type(index) is slice:
-			return self._replace(r=r)
-		else:
-			return self._getitem(self, r)
+		return self._getslice(r) if type(index) is slice else self._getitem(r)
 
 	def __contains__(self, value, /):
 		if indices := self.r:
@@ -296,6 +303,9 @@ class ranged(BaseSequence):
 
 class indexed(Size, ranged):
 	r:Sequence[int]
+
+	def __len__(self):
+		return len(self.r) if self.data else 0
 	
 	def iterfunc(reverse, /):
 		def __iter__(self, /):
@@ -303,17 +313,17 @@ class indexed(Size, ranged):
 			return getitems(data, reversed(indices) if reverse else indices)
 		return __iter__
 
-	def _getitem(self, index, /):
+	def _getitem(self, index:int, /):
 		return self.data[index]
 
+	def _getslice(self, r:range, /):
+		return self._replace(r=r)
+
 	def _index(self, obj, indices, /):
-		data = self.data
+		return indices.index(self.data.index(obj))
 
 	def _count(self, obj, indices, /):
-		data = self.data
-
-	def __len__(self):
-		return len(self.r) if self.data else 0
+		return sum(map(indices.count, mit.locate(self.data, obj)))
 
 	def unpack(self, /):
 		return getitems(self.data, self.r)
@@ -396,14 +406,11 @@ class islice_(indexed):
 	def unpack(self, /):
 		return self.data[(r := self.r).start:r.stop:r.step]
 
-	@classmethod
-	def fromslice(cls, data:Sequence, slice_obj:slice, /):
-		return cls(data, MAXSIZE_RANGE[slice_obj])
-
 
 @multidata
 class chain(BaseSequence):
 	'''Same as it.chain but as a sequence.'''
+	__slots__ = 'data'
 	data:tuple[Sequence]
 
 	__len__ = sum
@@ -496,13 +503,23 @@ class chain(BaseSequence):
 		return self
 	
 
+@dataclass(init=False, frozen=True)
+class RelativeSized(Size):
+	r:int
+
+
+class Sized(ranged):
+	__slots__ = ()
+	times = property(op.attrgetter('r.stop'))
+
+	def __len__(self, /):
+		return self.r.stop
+
+
 @dataclass(frozen=True)
-class Repeat(ranged):
+class Repeat(Sized):
 	'''Same as it.repeat but as a sequence.'''
 	value:Any
-
-	def __mul__(self, times, /):
-		return _replace(self, indices=range(self.times * times))
 
 	def __add__(self, value, /):
 		if (cls := type(self)) is type(value):
@@ -514,15 +531,18 @@ class Repeat(ranged):
 		return irepeat(self.value, self.times)
 
 	__reversed__ = __iter__
-
-	def _replace(self, indices, /):
-		return _replace(self, indices=range(len(indices)))
-	
+		
 	def __contains__(self, obj, /):
 		return True if self.times and self.value == obj else False
 
-	def _getitem(self, index, /):
+	def __repr__(self, /):
+		return f"repeat({self.value!r}, {self.times!r})"
+
+	def _getitem(self, index:int, /):
 		return self.value
+
+	def _getslice(self, r:range, /):
+		return self._replace(r=range(len(r)))
 
 	def count(self, value, /) -> int:
 		return self.times if value in self else 0
@@ -533,21 +553,12 @@ class Repeat(ranged):
 		else:
 			self.value_error(value)
 
-	def tolist(self, /):
+	def tolist(self, /) -> list:
 		return [self.value] * self.times
-
-	times = property(op.attrgetter('indices.stop'))
-	
-	def __len__(self, /):
-		return self.r.stop
-
-@dataclass(init=False, frozen=True)
-class Sized(Size):
-	r:int
 
 
 @dataclass(frozen=True)
-class mul(Sized):
+class mul(RelativeSized):
 	'''Emulates a data sequence multiplied r times.'''
 
 	def __mul__(self, r, /):
@@ -600,7 +611,7 @@ class mul(Sized):
 		return self.data * self.r
 
 
-class repeats(mul):
+class Repeats(mul):
 	'''Emulates a sequence with each elements repeated r times.'''
 
 	def __getitem__(self, index, /):
@@ -637,6 +648,11 @@ class SubSequence(BaseSequence):
 
 	_contains = Sequence.__contains__
 
+	_check = checker(tuple)
+
+	def __contains__(self, value, /):
+		return self._check(value) and self._contains(value)
+
 	def index(self, value, /, start=0, stop=maxsize):
 		if self._check(value):
 			if start is SENTINEL:
@@ -648,14 +664,9 @@ class SubSequence(BaseSequence):
 	def count(self, value, /):
 		return self._count(value) if self._check(value) else 0
 
-	def __contains__(self, value, /):
-		return self._check(value) and self._contains(value)
-
-	_check = checker(tuple)
-
 
 @dataclass(frozen=True)
-class chunked(Sized, SubSequence):
+class chunked(RelativeSized, SubSequence):
 	'''split the given sequence in iterables of n size.'''
 
 	def __post_init__(self, /):
@@ -693,12 +704,12 @@ class chunked(Sized, SubSequence):
 				it.starmap(range, self._indexes(r)))
 		return __iter__
 
-	_getitem = islice_.fromslice
+	# _getitem = islice_.fromslice
 
 	_check = checker(islice)
 
 	def _indexes(self, reverse, rev=MAP[2], /) -> ITII:
-		indices = MAXSIZE_RANGE[:len(self.data) + (n := self.r):n]
+		indices = range(0, len(self.data) + (n := self.r), n)
 		if reverse:
 			indices = reversed(indices)
 		indices = it.pairwise(indices)
@@ -860,7 +871,7 @@ class zip_longest(Zip):
 			yield data
 
 
-class combinations(SubSequence, Sized):
+class combinations(SubSequence, RelativeSized):
 	'''Base Class for combinatoric sequences. A combinations subclass is a type
 	of sequence that returns r-length sucessive tuples of different combinations
 	of all elements in data.'''
@@ -929,7 +940,7 @@ def product(*args, repeat:int=1):
 
 @multidata
 @dataclass(frozen=True)
-class Product(combinations, Sized):
+class Product(combinations, RelativeSized):
 	'''Same as it.product but acts as a sequence.'''
 	data:tuple[Sequence]
 
@@ -1001,188 +1012,10 @@ class Product(combinations, Sized):
 	_contains, _count = map(_contains, (all, math.prod), CC_MAP)
 
 
-class InfiniteSequence(SequenceView):
-	'''Base class for infinite sequence.'''
-	def __len__(self, /):
-		return math.inf
-
-	__bool__ = irepeat(True).__next__
-
-	def __getitem__(self, index, /):
-		is_slice = type(index) is slice
-		if not is_slice and (index := op.index(index)) < 0:
-			raise TypeError("Negative index is not supported.")
-		return self._getitem(index, is_slice)
-
-
-class cycle(InfiniteSequence):
-	'''Same as it.cycle but emulating a sequence.'''
-
-	__iter__ = data_func(simple_compose(from_iterable, irepeat))
-
-	__reversed__ = data_func(simple_compose(from_iterable, MAP[2], irepeat))
-
-	def _getitem(self, index:int, is_slice, /):
-		data = self.data
-		return data[index % len(data)]
-
-	def count(self, value, /) -> int | float:
-		return math.inf if value in self.data else 0
-
-
-@dataclass(order=True)
-class BaseCounter:
-	'''Case class for counter-like classes.'''
-	start:Number=0
-	step:Number=1
-
-	def _intersect_update(self, other, /):
-		'''The algorithm to get the first intersection point was provided
-		by chatGPT
-		#By assigning self.start as the final start variable we save few lines
-		of code.
-		start = self.start 
-		b = other.start
-		s1 = self.step
-		s2 = other.step
-		diff = Difference between starts
-		g = greatest common divissor between steps'''
-		start, b = self.start, other.start
-
-		if (ss := (step := self.step) == (s2 := other.step)) == 1:
-			if start < b:
-				start = b
-		
-		else:
-			s1 = step
-		
-			if ss:
-				g = step
-			else:
-				if s1 < (g := s2):
-					step, g = g, step
-
-				if step % g:
-					step *= g
-					g = 1
-
-			# If g doesn't divide diff, no solution
-			if (diff := b - start) % g:
-				return
-
-			# Solve for the smallest non-negative n
-			# Modular inverse of (s1 // g) mod (s2 // g)
-			mod_inv = (1 / (s1 // g)) % (s2g := s2 // g)
-			
-			# First intersection point
-			start += ((diff // g * mod_inv) % s2g) * s1 
-
-		self.step = step
-		self.start = start
-		return True
-
-
-	def _index_to_value(self, index, /):
-		return self.start + (index * self.step)
-
-	def _value_to_index(self, number, /):
-		return divmod(number - self.start, self.step)
-		
-
-class count(BaseCounter, InfiniteSequence, iterfunc=FROM_ITERTOOLS):
-	'''The sequence-like version of it.count'''	
-	stop:float=math.inf
-
-	def _getitem(self, index, is_slice, /):
-		transform = self._index_to_value
-		if is_slice:
-			if not (start := index.start):
-				start = self.start
-			else:
-				start = transform(start)
-
-			if (step := index.step) is not None:
-				step *= self.step
-
-			elif step < 0:
-				raise TypeError("Step value can't be negative.")
-
-			else:
-				step = self.step
-
-			if (stop := index.stop) is None:
-				return type(self)(start, step)
-			
-			elif not step:
-				return repeat(start, stop - start)
-			
-			else:
-				return Arange(start, transform(stop), step)
-
-		else:
-			return transform(index)
-
-
-	def __contains__(self, number, /):
-		index, mod = self._value_to_index(number)
-		return index >= 0 and not mod
-
-	def __and__(self, obj, /):
-		if isinstance(obj, COUNTABLE):
-			self = self.copy()
-			if obj and (args := self._intersect_update(obj)):
-				if (stop := obj.stop) is not self.stop:
-					self.__class__ = Arange
-					self.stop = stop
-				return self
-			else:
-				return Arange(zero := self.start * 0, zero)
-			
-		else:
-			return NotImplemented
-
-
-	def __iand__(self, obj, /):
-		if (cls := type(self)) is type(obj):
-			return self if self._intersect_update(obj) else Arange(0, 0)
-		else:
-			return NotImplemented
-
-	def __add__(self, obj, /):
-		type(self)(self.start + obj, self.step)
-
-	def __radd__(self, obj, /):
-		type(self)(obj + self.start, self.step)
-
-	def __sub__(self, obj, /):
-		type(self)(self.start + obj, self.step)
-
-	def __rsub__(self, obj, /):
-		type(self)(obj + self.start, self.step)
-
-	def count(self, number, /) -> int:
-		return number in self[start:stop]
-
-	def index(self, number, /):
-		index, mod = self._value_to_index(number)
-		if index < 0 or mod:
-			self.value_error(number)
-		return math.trunc(index)
-	
-	@counter_expand_method
-	def expandleft(self, steps, /):
-		self.start -= steps
-
-	def popleft(self, /) -> Number:
-		self.start = (start := self.start) + self.step
-		return start
-
-	def copy(self, /):
-		return type(self)(self.start, self.step)
 
 
 @dataclass(frozen=True)
-class enumerated(SubSequence, InfiniteSequence, iterfunc=enumerate):
+class enumerated(SubSequence, iterfunc=enumerate):
 	"""Same as builtins.enumerate but as a sequence."""
 	start:int=0
 
@@ -1196,6 +1029,8 @@ class enumerated(SubSequence, InfiniteSequence, iterfunc=enumerate):
 	def __reversed__(self, /):
 		data = self.data	
 		return zip(it.count(self.start + len(data) - 1, -1), reversed(data))
+
+	__len__, __bool__ = SequenceView.__len__, SequenceView.__bool__
 
 	def _check(self, value, /):
 		return value.__class__ is tuple and len(value) == 2
@@ -1226,427 +1061,78 @@ class enumerated(SubSequence, InfiniteSequence, iterfunc=enumerate):
 		return value is not SENTINEL and value == obj
 
 
-@dataclass(init=False)
-class Arange(BaseCounter, BaseSequence):
-	'''A mutable numeric range, with math, statistics and aritmethical
-	methods, as well as support for set operations like intersection or the
-	& operator.
-	Example:
-	number_list = Arange(0, 10, 2.)
-	number_list[-3]	
-	#prints 4.0
-
-	 '''
-	stop:Number=0
-
-	@slicer
-	def __init__(self, slicer, /):
-		self.start = 0 if (start := slicer.start) is None else start
-		self.stop = slicer.stop
-		
-		if (step := slicer.step) is None:
-			self.step = 1
-		
-		elif not step:
-			raise ValueError("Step argument must not be zero.")
-		
-		else:
-			self.step = step
-
+class cycle(SequenceView):
+	'''Same as it.cycle but emulating a sequence.'''
+	__slots__ = ()
 	
-	def __repr__(self, /):
-		string = f"{self.__class__.__name__}({self.start!r}, {self.stop!r}"
-		if (step := self.step) == 1:
-			return string + ')'
-		else:
-			return f"{string}, {step})"
-
 	def __getitem__(self, index, /):
-		get_value = self._index_to_value
-		step = self.step
-		if type(index) is slice:
-			start, stop, istep = index.indices(len(self))
-			return type(self)(get_value(start), get_value(stop), step * istep)
-		else:
-			stop = self.stop
-			if (index := op.index(index)) < 0:
-				index *= step
-				index = math.ceil((stop + index - self.start) / step)
-				if index >= 0:
-					return get_value(index)
+		data = self.data
+		return data[index % len(data)]
 
-			elif (value := get_value(index)) < stop:
-				return value
+	__iter__ = data_func(simple_compose(from_iterable, irepeat))
 
-			raise IndexError("Arange Index out of range")
+	__reversed__ = data_func(simple_compose(from_iterable, MAP[2], irepeat))
 
 	def __len__(self, /):
-		size = math.ceil((self.stop - self.start) / self.step)
-		return size if size > 0 else 0
+		return math.inf
 
-	def __bool__(self, /):
-		if self.step > 0:
-			return self.stop > self.start
-		else:
-			return self.start > self.stop
+	__bool__ = constfunc(True)
 
-	def iter_method(func, /):
-		@wraps(func)
-		def function(self, /):
-			return it.islice(func(it.count, self), len(self))
-		return function
-
-	@iter_method
-	def __iter__(count, self, /):
-		return count(self.start, self.step)
-
-	@iter_method
-	def __reversed__(count, self, /):
-		return count(self._last, -self.step)
-
-	del iter_method
-
-	def __array__(self, /):
-		from numpy import arange
-		return arange(self.start, self.stop, self.step)	
-
-	def __contains__(self, value, /):
-		index, mod = self._value_to_index(value)
-		return not mod and index >= 0 and value < self.stop
-
-	def __invert__(self, /):
-		return type(self)(~self.start, ~self.stop, -self.step)
-
-	def __pos__(self, /):
-		return type(self)(+self.start, +self.stop, +self.step)
-
-	def __neg__(self, /):
-		return type(self)(-self.start, -self.stop, -self.step)
-
-	def __add__(self, x, /):
-		return self._newlims(self.start + x, self.stop + x)
-
-	def __radd__(self, x, /):
-		return self._newlims(x + self.start, x + self.stop)
-
-	def __iadd__(self, x, /):
-		self.start += x
-		self.stop += x
-		return self
-
-	def __sub__(self, x, /):
-		return self._newlims(self.start - x, self.stop - x)
-
-	def __rsub__(self, x, /):
-		return self._newlims(x - self.start, x - self.stop)
-
-	def __isub__(self, x, /):
-		self.start -= x
-		self.stop -= x
-		return self
-
-	def __mul__(self, x, /):
-		return type(self)(self.start * x, self.stop * x, self.step * x)
-
-	def __rmul__(self, x, /):
-		return type(self)(x * self.start, x * self.stop, x * self.step)
-
-	def __imul__(self, x, /):
-		self.start *= x
-		self.stop *= x
-		self.step *= x
-		return self
-
-	def __truediv__(self, x, /):
-		return type(self)(self.start / x, self.stop / x, self.step / x)
-
-	def __rtruediv__(self, x, /):
-		return type(self)(x / self.start, x / self.stop, x / self.step)
-
-	def __itruediv__(self, x, /):
-		self.start /= x
-		self.stop /= x
-		self.step /= x
-		return self
-
-	def __floordiv__(self, x, /):
-		return type(self)(self.start // x, self.stop // x, self.step // x)
-
-	def __rfloordiv__(self, x, /):
-		return type(self)(x // self.start, x // self.stop, x // self.step)
-
-	def __ifloordiv__(self, x, /):
-		self.start //= x
-		self.stop //= x
-		self.step //= x
-		return self
+	def count(self, value, /) -> int | float:
+		return math.inf if value in self.data else 0
 
 
-	def __and__(self, obj, /):
-		if isinstance(obj, COUNTABLE):
-			(self := self.copy())._intersect_update(obj)
-			return self
-		else:
-			return NotImplemented
+@dataclass(frozen=True)
+class Count(Sized):	
+	'''The sequence-like version of it.count'''	
+	start:Number=0
+	step:Number=1
 
-	
-	def __iand__(self, obj, /):
-		if isinstance(obj, COUNTABLE):
-			self._intersect_update(obj)
-			return self
-		else:
-			return NotImplemented
+	def __contains__(self, number, /):
+		index, mod = self._getindex(number)
+		return index >= 0 and not mod
 
+	def __repr__(self, /):
+		return f"progression({self.start!r}, {self.step!r}, n={self.times!r})"
 
-	def _newlims(self, start, stop, /):
-		return type(self)(start, stop, self.step)
+	def _getitem(self, index:int, /):
+		return self.start + (index * self.step)
 
-
-	def clear(self, /):
-		if self:
-			if self.step > 0:
-				self.stop = self.start
-			else:
-				self.start = self.stop
-
-
-	# def order_func(func, /):
-	# 	@wraps(func)
-	# 	def function(self, obj, /):
-	# 		if type(self) is not type(obj):
-	# 			return NotImplemented
-			
-	# 		elif len(self) == len(obj):
-	# 			return func(self.start, obj.start, self.step, obj.step)
-
-	# 		else:
-	# 			raise TypeError("Can't compare Aranges with different sizes.")
-	# 	return function
-
-	
-	def __eq__(self, obj, /):
-		#sbv = same boolean value
-		#nv = no values
-		if isinstance(obj, Arange):
-			nv  = (sbv := bool(self) == bool(ob)) == False
-			return (sbv and nv or self.start == obj.start and
-				self.step == obj.step and self._last == other._last)
-
-		else:
-			return NotImplemented
-
-
-	@property
-	def shape(self, /):
-		return len(self),
-
-	@property
-	def ndim(self, /):
-		return 1
-
-	flat, _args, pyrange = map(property,
-		(iter, rargs, op.methodcaller('tocls', range)))
-
-	@property
-	def _last(self, /) -> Number:
-		self._index_to_value(self._lastindex)
-
-	@property
-	def _empty(self, /):
-		return type(self)(zero := self.start * 0, zero)
-
-	def _intersect_update(self, obj, /):
-		if not self:
-			return
-
-		elif obj and (has_intersection := super()._intersect_update(obj)):
-			if self.stop > (stop := obj.stop):
-				self.stop = stop
-			return has_intersection
-
-		else:
-			self.clear()
-
-
-	@set_name
-	def imag(name, /):
-		attrmap = mapper(op.attrgetter(name))
-		return property(lambda self, /: type(self)(*attrmap(rargs(self))))
-
-	denominator = numerator = real = imag
-
-
-	def count(self, value, /) -> int:
-		return +(value in self)
-
-	def index(self, value, /) -> int:
-		index, mod = self._value_to_index(value)
-		if not mod and index >= 0 and value < self.stop:
-			return math.trunc(index)
-		else:
-			self.value_error(value)
-
-
-	@counter_expand_method
-	def expand(self, steps, /) -> Number:
-		self.stop += steps
-
-	@counter_expand_method
-	def walk(self, steps, /) -> Number:
-		self += steps
-
-	
-	def pop_method(func, /):
-		@wraps(func)
-		def function(self, /):
-			if self:
-				return func(self, self.step)
-			else:
-				raise IndexError("Pop from empty range")
-		return function
-
-	@pop_method
-	def popleft(self, step, /) -> Number:
-		self.start = (start := self.start) + step
-		return start
-
-	@pop_method
-	def pop(self, step, /) -> Number:
-		value = self._last
-		self.stop -= step
-		return value
-
-	del pop_method
-
-
-	def reverse(self, /):
-		step = -self.step
+	def _getslice(self, r:range, ):
+		step = self.step
 		start = self.start
-		self.start = last = self._last
-		self.stop = start + step
-		self.step = step
+		if nstart := r.start:
+			start += step * nstart
+		return type(self)(range(len(r)), start, step * r.step)
 
-	def copy(self, /):
-		return type(self)(*self._args)
+	def _getindex(self, number:Number, /):
+		return divmod(number - self.start, self.step)
 
-	def sum(self, /) -> Number:
-		start = self.start
-		if self:
-			return (start + self._last) * len(self) / 2
-		else:
-			return start * 0
-
-	def st_method(func, /):
-		@wraps(func)
-		def function(self, /):
-			if self:
-				return func(self.step, (((n := len(self)) **2) - 1) / n)
-			else:
-				return math.nan
-		return function
-
-	@st_method
-	def std(d, n, /):
-		return (d / ROOT12) * math.sqrt(n)
-
-	@st_method
-	def var(d, n, /):
-		return (d**2 / 12) * n
-
-	del st_method
-
-	
-	@bool_method
-	def mean(self, /) -> Number:
-		return (self.start + self._last) / 2
-
-
-	def minmax(func, /):
-		@bool_method
-		@wraps(func)
-		def function(self, /) -> Number:
-			return func(self, self.step > 0)
-		return function
-
-	@minmax
-	def min(self, growing, /) -> Number:
-		return self.start if growing else self._last
-
-	@minmax
-	def max(self, growing, /) -> Number:
-		return self._last if growing else self.start
-	
 	@property
-	def _lastindex(self, /) -> int:
-		return len(self) - 1
+	def stop(self, /):
+		return self._getitem(self.times)
 
-	@minmax
-	def argmax(self, growing, /):
-		return self._lastindex if growing else 0
-
-	@minmax
-	def argmin(self, growing, /):
-		return 0 if growing else self._lastindex
-
-
-	def median_method(func, /):
-		@bool_method
-		@wraps(func)
-		def function(self, /):
-			return self._index_to_value(func(len(self)))
-		return function
-
-	@median_method
-	def median_low(n, /) -> Number:
-		i, mod = divmod(n, 2)
-		return i if mod else i - 1
-
-	@median_method
-	def median_high(n, /) -> Number:
-		return n // 2
-
-	del median_method
-
-
-	def tocls(self, cls, /) -> range:
-		return cls(*self._args)
-
-	@classmethod
-	def fromobj(cls, obj, /):
-		return cls(*rargs(obj))
-
-
-	def adjust(self, /):
-		'''Adjust the stop argument of the range to match exactly with the step.
-		If the arange is empty, the arange is best left unchanged.
-		
-		Example:
-		x = Arange(0, 95, 4)
-		x.adjust()
-		print(x) #prints Arange(0, 96, 4)
-		'''
-		last, step = self._last, self.step
-		if self and self.stop - last != self.step:
-			self.stop = last + step
-
-	
-	def intersection_update(self, /, *ranges):
-		'''Update self by the intersection between multiple ranges.'''
-		#If there is any empty range, there is no intersection.
-		if self:
-			if all(ranges) and all(map(super()._intersect_update, ranges)):
-				if self.stop > (stop := min(MAP[-1](ranges))):
-					self.stop = stop
+	def iterfunc(r, /):
+		def __iter__(self, /):
+			step = self.step
+			times = self.times
+			if r:
+				start = self._getitem(times - 1)
+				step = -step
 			else:
-				self.clear()
+				start = self.start
+			return it.islice(it.count(start, step), times)
+		return __iter__
 
-	def intersection(self, /, *ranges):
-		'''Returns the intersection between multiple ranges as a new Arange'''
-		(self := self.copy()).intersection_update(*ranges)
-		return self
-		
+	def count(self, number:Number, /) -> int:
+		return +(number in self)
 
-COUNTABLE = BaseCounter | range
+	def index(self, number:Number, /):
+		index, mod = self._getindex(number)
+		if index < 0 or mod:
+			self.value_error(number)
+		return math.trunc(index)
+
 
 del (maxsize, abc, ITII, UserDict, simple_compose, UserList, set_name,
 	partializer, dunder_method, unassigned_method, fromcls)

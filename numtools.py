@@ -18,7 +18,14 @@ re = re.compile(r'[-+]?(?:\d*\.*\d+)')
 
 
 def partialop(symbol:str, value:Number, /):
+    '''Partialize an operator function'''
     return MethodType(operator_funcs[symbol], value)
+
+
+def rpartialop(symbol:str, value:Number):
+    '''Partialize the second argument of an operator function'''
+    func = operator_funcs[symbol]
+    return lambda x, /: func(x, value)
 
 
 def eval(string:str, /, dtype:abc.Callable = int, start:int = 0) -> Number:

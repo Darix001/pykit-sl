@@ -1,18 +1,26 @@
-import math
-from functools import update_wrapper, wraps
+import math, itertools as it
+from operator import attrgetter
+from functools import update_wrapper as wrap, wraps, reduce
+
+ROOT12 = math.sqrt(12)
+rargs = attrgetter('start', 'stop', 'step')
+
+
+def slicer(cls, /):
+    '''Decorator for range-like classes'''
+    cls.__init__ = wrap(lambda obj, /, *args: func(obj, slice(*args)),
+        cls.__init__)
+    return cls
 
 
 def prod(r:range, /):
     '''Calculates the product of a range.'''
     if not r:
         return 1
+
     if 0 in r:
         return 0
-    elif r.step == 1:
-        value = math.factorial(r[-1])
-        if (start := r.start) > 1:
-            return value // math.factorial(start - 1)
-        return value
+
     else:
         return math.prod(r)
 
@@ -23,24 +31,20 @@ def statistic(func, /):
             return func(r)
         else:
             raise ValueError(f"No {func.__name__} for empty range.")
-    return update_wrapper(function, func, updated=('__annotations__',))
-
+    return wrap(function, func, updated=('__annotations__',))
 
 @statistic
 def fmean(r) -> float:
     '''Calculates the mean of a range.'''
     return (r.start + r[-1]) / 2
 
-
 def mean(r:range, /) -> float | int:
     return math.trunc(r) if (r := fmean(r)).is_integer() else r
-
 
 @statistic
 def median_high(r) -> int:
     '''Return the high median of a range.'''
     return r[len(r) // 2]
-
 
 @statistic
 def median_low(r) -> int:
@@ -48,13 +52,16 @@ def median_low(r) -> int:
     i, mod = divmod(n := len(r), 2)
     return r[i] if mod else r[i - 1]
 
-
 @statistic
 def median(r) -> int | float:
     '''Return the median (middle value) of a range.'''
     i, mod = divmod(n := len(r), 2)
     return r[i] if mod else (r[i] + r[i - 1]) / 2
 
+
+def rfsum(r) -> int:
+    '''Calculates sum(range(*args)).'''
+    return (r.start + r[-1]) * len(r) / 2 if r else 0
 
 def rsum(r) -> int:
     '''Calculates sum(range(*args)).'''
@@ -71,29 +78,24 @@ def minmax(func, /):
 def rmin(r, growing, /) -> int:
     return r.start if growing else r[-1]
 
-
-
 @minmax
 def rmax(r, growing, /) -> int:
     return r.start if growing else r[-1]
 
-
 @minmax
 def argmin(r, growing, /) -> int:
     return 0 if growing else len(r) - 1
-
 
 @minmax
 def argmax(r, growing, /) -> int:
     return len(r) - 1 if growing else 0
 
 
-def setmethod(func, data={'r':range, 'x':range, 'return':bool}, /):
+def rangesetfunc(func, data={'r':range, 'x':range, 'return':bool}, /):
     func.__annotations__ |= data
     return func
 
-
-@setmethod
+@rangesetfunc
 def isdisjoint(r, x, /):
     '''Return True if two ranges have a null intersection.'''
     if r and x:
@@ -104,9 +106,8 @@ def isdisjoint(r, x, /):
         return max(x.start, r.start) >= min(r[-1], x[-1])
     else:
         return True
-        
 
-@setmethod
+@rangesetfunc
 def issubrange(r, x, /):
     '''Report whether another range contains this range.'''
     if not r:
@@ -116,14 +117,12 @@ def issubrange(r, x, /):
     else:
         return r.start in x and r[-1] in x
 
-
-@setmethod
+@rangesetfunc
 def issuperrange(r, x, /):
     '''Report whether this range contains another range.'''
     return issubrange(x, r)
 
-
-@setmethod
+@rangesetfunc
 def contains(r, x, /):
     '''Report wether elements of x range are in r range.'''
     if not x:
@@ -133,27 +132,85 @@ def contains(r, x, /):
     else:
         return x.start in r and x[-1] in r
 
+@rangesetfunc
+def and_(r, x, /):
+    '''The algorithm to get the first intersection point was provided
+    by chatGPT
+    #By assigning r.start as the final start variable we save few lines
+    of code.
+    start = r.start 
+    b = x.start
+    s1 = r.step
+    s2 = x.step
+    diff = Difference between starts
+    g = greatest common divissor between steps'''
+    cls = type(r)
+    start, b = r.start, x.start
 
-@setmethod
-def intersection(r, x, /):
-    '''Returns the intersection of two ranges as a new range.'''
-    if (start := r1.start) < (rstart := r2.start):
-        start = rstart
+    if (ss := (step := r.step) == (s2 := x.step)) == 1:
+        if start < b:
+            start = b
     
-    if (stop := r1.stop) > (rstop := r2.stop):
+    else:
+        s1 = step
+    
+        if ss:
+            g = step
+        else:
+            if s1 < (g := s2):
+                step, g = g, step
+
+            if step % g:
+                step *= g
+                g = 1
+
+        # If g doesn't divide diff, no solution
+        if (diff := b - start) % g:
+            return cls(zero := start * 0, zero)
+
+        # Solve for the smallest non-negative n
+        # Modular inverse of (s1 // g) mod (s2 // g)
+        mod_inv = (1 / (s1 // g)) % (s2g := s2 // g)
+        
+        # First intersection point
+        start += ((diff // g * mod_inv) % s2g) * s1 
+
+    if (stop := x.stop) > (rstop := r.stop):
         stop = rstop
-    
-    if start >= stop:
-        return range(0, 0)  # No intersection
 
-    # Find the least common multiple (LCM) of the steps to ensure alignment
-    step_lcm = math.lcm(r.step, x.step)
+    return cls(start, stop, step)
 
-    # Find the first valid number in the intersection range
-    while start < stop and (start - r1.start) % r1.step != 0:
-        start += 1
-    
-    while start < stop and (start - r2.start) % r2.step != 0:
-        start += 1
 
-    return range(start, stop, step_lcm)
+def intersection(*args):
+    if not args:
+        return range(0, 0)
+
+    cls = type(self := args[0])
+    if all(args):
+        starts, stops, steps = zip(*map(rargs, args))
+        
+        if steps.count(1) == len(steps):
+            return cls(min(starts), max(stops))
+
+        else:
+            return reduce(and_, args)
+
+    return cls(zero := self.start * 0, zero)
+
+
+def variance_func(func, /):
+    def function(x:range, /):
+        if self:
+            return func(self.step, (((n := len(self)) **2) - 1) / n)
+        else:
+            return math.nan
+    return function
+
+
+@variance_func
+def std(d, n, /):
+    return (d / ROOT12) * math.sqrt(n)
+
+@variance_func
+def var(d, n, /):
+    return (d**2 / 12) * n

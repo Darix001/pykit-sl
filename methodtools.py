@@ -1,7 +1,7 @@
-import __future__, builtins, operator, itertools as it
+import __future__, builtins, operator as op, itertools as it
+
 from reprlib import Repr
 from typing import Any
-from operator import attrgetter
 from collections import UserList
 from types import FunctionType, CodeType, MethodType
 from functools import update_wrapper, partial, wraps
@@ -11,7 +11,7 @@ from collections.abc import (MappingView, __loader__, Callable, Iterable,
 
 basecode = UserList.__len__.__code__
  
-func_args = operator.attrgetter('__code__', '__globals__', '__name__',
+func_args = op.attrgetter('__code__', '__globals__', '__name__',
 	'__defaults__', '__closure__')
 
 ASSIGNMENTS = ('__module__', '__qualname__', '__doc__', '__annotations__',
@@ -88,10 +88,10 @@ def new_globals(cls, /):
 	return decorator
 
 
-class set_name(unassigned_method):
+class multiname_method(unassigned_method):
 	'''Given a function, wich assigned multiple names on a class, 
-	passes the name to the function and assigns the result of the
-	function call to the variable name class.
+	passes the name to the function and attachs the new resulting functions
+	to the assigned class variable names.
 	
 	Example:
 	@set_name
@@ -107,11 +107,26 @@ class set_name(unassigned_method):
 	'''
 
 	def __set_name__(self, cls, name, /):
-		if type(func := self.func(name)) is FunctionType:
-			add_method(cls, func, name)
-		else:
-			setattr(cls, name, func)
+		add_method(cls, self.func(name))
 
+
+class set_name(unassigned_method):
+	'''Given a function, wich assigned multiple names on a class, 
+	passes the name to the function and assigns the result of the
+	function call to the variable name class.
+	
+	Example:
+
+	class A:
+		word = other_word = variable_name = set_name(str.upper)
+
+	print(A.word)
+	#prints WORD
+
+	'''
+	def __set_name__(self, cls, name, /):
+		setattr(cls, name, self.func(name))
+		
 
 
 def dunder_method(attr, /, module=builtins) -> set_name:
@@ -142,7 +157,7 @@ class operator_method(set_name):
 			add_method(cls, method)
 
 
-def op_method(methods, /, namespace=operator.__dict__, rigth=None) -> partial:
+def op_method(methods, /, namespace=op.__dict__, rigth=None) -> partial:
 	if rigth:
 		namespace = {namespace.get(key.replace('__', '__r', 1),
 			namespace[key]) for key in methods}
@@ -164,7 +179,7 @@ unary_method = op_method(UNARY)
 
 
 
-getinitcode = attrgetter('__init__.__code__')
+getinitcode = op.attrgetter('__init__.__code__')
 
 inits = dict(
 	enumerate(
@@ -263,7 +278,7 @@ def set_coname(func, /, dec=None):
 
 
 def copy_fromcls(cls, /):
-	@set_name
+	@multiname_method
 	def factory(name, /):
 		return func_copy(getattr(cls, name))
 
@@ -277,7 +292,10 @@ class fromcls:
 
 	def __set_name__(self, cls, name, /):
 		setattr(cls, name, getattr(self.cls, name))
-		
+
+
+def constfunc(value, /) -> Callable:
+	return it.repeat(value).__next__
 
 # class namespace:
 # 	'''Class that accepts dynamic attributes.
