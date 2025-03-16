@@ -107,7 +107,7 @@ class multiname_method(unassigned_method):
 	'''
 
 	def __set_name__(self, cls, name, /):
-		add_method(cls, self.func(name))
+		add_method(cls, self.func(name), name)
 
 
 class set_name(unassigned_method):
@@ -141,12 +141,9 @@ def dunder_method(attr, /, module=builtins) -> set_name:
 	return func
 
 
-class operator_method(set_name):
-	__slots__ = ('namespace', 'methods')
-
+class operator_method:
 	def __init__(self, func, /, namespace, methods):
-		self.func = partial(FunctionType, func.__code__,
-			func.__globals__)
+		self.func = partial(FunctionType, func.__code__, func.__globals__)
 		self.namespace = namespace
 		self.methods = methods
 

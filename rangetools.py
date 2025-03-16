@@ -6,13 +6,6 @@ ROOT12 = math.sqrt(12)
 rargs = attrgetter('start', 'stop', 'step')
 
 
-def slicer(cls, /):
-    '''Decorator for range-like classes'''
-    cls.__init__ = wrap(lambda obj, /, *args: func(obj, slice(*args)),
-        cls.__init__)
-    return cls
-
-
 def prod(r:range, /):
     '''Calculates the product of a range.'''
     if not r:

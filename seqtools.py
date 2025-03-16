@@ -10,14 +10,12 @@ from numbers import Number
 from typing import Any, NamedTuple
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from collections import deque, UserDict, UserList
 from functools import wraps, update_wrapper as wrap
+from collections import deque, UserDict, UserList, Counter
 
-from .rangetools import rargs, slicer
+from .rangetools import rargs
 from .methodtools import (
 	fromcls,
-	set_name,
-	constfunc,
 	add_method,
 	MethodType,
 	partializer,
@@ -32,6 +30,7 @@ irepeat = it.repeat
 div_index = {0, -1}.__contains__
 data_method = dunder_method('data')
 data_func = data_method.with_func
+cycle = simple_compose(irepeat, from_iterable)
 
 FROM_ITERTOOLS = 1
 R_NONE = irepeat(None)
@@ -53,6 +52,13 @@ ITII = abc.Iterator[tuple[int, int]]
 NWISE_ITER = {1:zip, 2:it.pairwise}
 MAXSIZE_RANGE = range(maxsize)
 SENTINEL = object()
+
+
+def slicer(func, /) -> abc.Callable:
+	'''Decorator for functions wich accepts one argument and range arguments.:
+	function(iterable, stop)
+	function(iterable, start, stop[, step])'''
+	return wrap(lambda obj, /, *args: func(obj, slice(*args)), func)
 
 
 def efficient_nwise(iterable:abc.Iterable, n:int) -> abc.Generator[deque]:
@@ -79,21 +85,6 @@ def checker(cls, /):
 
 	return unassigned_method(
 		lambda self, obj, /: obj.__class__ is cls and len(obj) == self.r)
-
-
-def bool_method(func, /) -> abc.Callable:
-	
-	@wraps(func)
-	def function(self, /):
-		if self:
-			return func(self)
-		else:
-			raise ValueError(
-				f"attempt to get {func.__name__}"
-				f"on empty {self.__class__.__name__}"
-				)
-	
-	return function
 
 
 def comb_len(cls, /) -> type:
@@ -146,10 +137,11 @@ islice = slicer(efficient_slice)
 def repeat(object:Any, times:int) -> Repeat:
 	return Repeat(range(times if times > 0 else 0), object)
 
+
 def progression(start:Number, step:Number, /, n:int):
 	if n < 0:
 		raise ValueError("n must be a positive integer")
-	return Count(range(n), start, step)
+	return Progression(range(n), start, step)
 
 
 def get(data:Sequence, index:int, default:Any=None, /):
@@ -275,12 +267,14 @@ class Size(SequenceView):
 
 
 @dataclass(frozen=True)
-class ranged(BaseSequence):
+class Ranged(BaseSequence):
 	r:range
 
 	def __getitem__(self, index, /):
-		r = self.r[index]
-		return self._getslice(r) if type(index) is slice else self._getitem(r)
+		if type(r := self.r[index]) is int:
+			return self._getitem(r)
+		else:
+			return self._replace(r=r)
 
 	def __contains__(self, value, /):
 		if indices := self.r:
@@ -301,7 +295,7 @@ class ranged(BaseSequence):
 			return 0
 
 
-class indexed(Size, ranged):
+class indexed(Size, Ranged):
 	r:Sequence[int]
 
 	def __len__(self):
@@ -316,14 +310,11 @@ class indexed(Size, ranged):
 	def _getitem(self, index:int, /):
 		return self.data[index]
 
-	def _getslice(self, r:range, /):
-		return self._replace(r=r)
-
 	def _index(self, obj, indices, /):
 		return indices.index(self.data.index(obj))
 
 	def _count(self, obj, indices, /):
-		return sum(map(indices.count, mit.locate(self.data, obj)))
+		return sum(map(Counter(indices).get, mit.locate(self.data, obj)))
 
 	def unpack(self, /):
 		return getitems(self.data, self.r)
@@ -508,44 +499,42 @@ class RelativeSized(Size):
 	r:int
 
 
-class Sized(ranged):
-	__slots__ = ()
-	times = property(op.attrgetter('r.stop'))
-
-	def __len__(self, /):
-		return self.r.stop
-
-
 @dataclass(frozen=True)
-class Repeat(Sized):
+class Repeat(Ranged):
 	'''Same as it.repeat but as a sequence.'''
 	value:Any
 
-	def __add__(self, value, /):
-		if (cls := type(self)) is type(value):
-			if (value := self.value) == value.value:
-				return cls(value, self.times + value.times)
-		return NotImplemented
+	def __len__(self, /):
+		return self.r.stop
 	
 	def __iter__(self, /):
-		return irepeat(self.value, self.times)
+		return irepeat(self.value, self.r.stop)
 
 	__reversed__ = __iter__
 		
 	def __contains__(self, obj, /):
-		return True if self.times and self.value == obj else False
+		return True if self.r.stop and self.value == obj else False
 
+	def __add__(self, value, /):
+		if (cls := type(self)) is type(value):
+			if (value := self.value) == value.value:
+				return cls(value, self.r.stop + value.r.stop)
+		return NotImplemented
+	
 	def __repr__(self, /):
-		return f"repeat({self.value!r}, {self.times!r})"
+		return f"repeat({self.value!r}, {self.r.stop!r})"
 
 	def _getitem(self, index:int, /):
 		return self.value
 
-	def _getslice(self, r:range, /):
-		return self._replace(r=range(len(r)))
+	def _replace(self, /, **kwargs):
+		if 'r' in kwargs:
+			pass
+		kwargs['r'] = range(len(kwargs['r']))
+		return _replace(self, **kwargs)
 
 	def count(self, value, /) -> int:
-		return self.times if value in self else 0
+		return self.r.stop if value in self else 0
 
 	def index(self, value, /) -> int:
 		if value in self:
@@ -554,7 +543,7 @@ class Repeat(Sized):
 			self.value_error(value)
 
 	def tolist(self, /) -> list:
-		return [self.value] * self.times
+		return [self.value] * self.r.stop
 
 
 @dataclass(frozen=True)
@@ -607,7 +596,7 @@ class mul(RelativeSized):
 				return index(value, start, stop % r)
 		self.value_error(value)
 
-	def unpack(self, /):
+	def unpack(self, /) -> Sequence:
 		return self.data * self.r
 
 
@@ -655,8 +644,6 @@ class SubSequence(BaseSequence):
 
 	def index(self, value, /, start=0, stop=maxsize):
 		if self._check(value):
-			if start is SENTINEL:
-				start = None
 			return self._index(value, start, stop)
 		else:
 			self.value_error(value)
@@ -1061,78 +1048,57 @@ class enumerated(SubSequence, iterfunc=enumerate):
 		return value is not SENTINEL and value == obj
 
 
-class cycle(SequenceView):
-	'''Same as it.cycle but emulating a sequence.'''
-	__slots__ = ()
-	
-	def __getitem__(self, index, /):
-		data = self.data
-		return data[index % len(data)]
-
-	__iter__ = data_func(simple_compose(from_iterable, irepeat))
-
-	__reversed__ = data_func(simple_compose(from_iterable, MAP[2], irepeat))
-
-	def __len__(self, /):
-		return math.inf
-
-	__bool__ = constfunc(True)
-
-	def count(self, value, /) -> int | float:
-		return math.inf if value in self.data else 0
-
-
 @dataclass(frozen=True)
-class Count(Sized):	
+class Progression(Ranged):
 	'''The sequence-like version of it.count'''	
-	start:Number=0
-	step:Number=1
+	a1:Number=0
+	d:Number=1
 
 	def __contains__(self, number, /):
-		index, mod = self._getindex(number)
-		return index >= 0 and not mod
+		return self._getindex(number) in self.r
 
-	def __repr__(self, /):
-		return f"progression({self.start!r}, {self.step!r}, n={self.times!r})"
+	__len__ = __bool__ = dunder_method('r')
 
 	def _getitem(self, index:int, /):
-		return self.start + (index * self.step)
-
-	def _getslice(self, r:range, ):
-		step = self.step
-		start = self.start
-		if nstart := r.start:
-			start += step * nstart
-		return type(self)(range(len(r)), start, step * r.step)
+		return self._a1 + (index * self._d)
 
 	def _getindex(self, number:Number, /):
-		return divmod(number - self.start, self.step)
+		return (number - self._a1) / self._d
 
 	@property
-	def stop(self, /):
-		return self._getitem(self.times)
+	def start(self, /) -> Number:
+		return self._getitem(self.r.start)
 
-	def iterfunc(r, /):
+	@property
+	def step(self, /) -> Number:
+		return self._d * self.r.step
+
+	@property
+	def stop(self, /) -> Number:
+		return self._getitem(self.r.stop)
+
+	@property
+	def last(self, /) -> Number:
+		return self._getitem(self.r[-1])
+
+
+	def iterfunc(reverse, /):
 		def __iter__(self, /):
 			step = self.step
-			times = self.times
-			if r:
-				start = self._getitem(times - 1)
+			if reverse:
+				start = self.last
 				step = -step
 			else:
 				start = self.start
-			return it.islice(it.count(start, step), times)
+			return it.islice(it.count(start, step), len(self.r))
 		return __iter__
 
 	def count(self, number:Number, /) -> int:
-		return +(number in self)
+		return self.r.count(self._getindex(number))
 
-	def index(self, number:Number, /):
-		index, mod = self._getindex(number)
-		if index < 0 or mod:
-			self.value_error(number)
-		return math.trunc(index)
+	def index(self, number:Number, /) -> int:
+		return self.r.index(self._getindex(number))
 
 
-del (maxsize, abc, ITII, UserDict, simple_compose, UserList, set_name,
-	partializer, dunder_method, unassigned_method, fromcls)
+del (maxsize, abc, ITII, UserDict, simple_compose, UserList, partializer,
+	dunder_method, unassigned_method, fromcls)
