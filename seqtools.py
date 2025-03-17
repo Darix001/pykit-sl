@@ -7,7 +7,7 @@ more_itertools as mit
 
 from sys import maxsize
 from numbers import Number
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Optional
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from functools import wraps, update_wrapper as wrap
@@ -35,6 +35,7 @@ cycle = simple_compose(irepeat, from_iterable)
 FROM_ITERTOOLS = 1
 R_NONE = irepeat(None)
 NEW_OBJ = classmethod(object.__new__)
+OPINT = Optional[int]
 
 mapper = partializer(map)
 
@@ -95,6 +96,7 @@ def comb_len(cls, /) -> type:
 	
 	def __len__(self, /):
 		return func(len(self.data), self.r)
+
 	add_method(cls, __len__)
 	
 	return cls
@@ -138,9 +140,10 @@ def repeat(object:Any, times:int) -> Repeat:
 	return Repeat(range(times if times > 0 else 0), object)
 
 
-def progression(start:Number, step:Number, /, n:int):
+def progression(start:Number=0, step:Number=1, /, *, n:int):
 	if n < 0:
 		raise ValueError("n must be a positive integer")
+	check_step(step)
 	return Progression(range(n), start, step)
 
 
@@ -249,7 +252,7 @@ class ReverseView(SequenceView):
 		else:
 			return data[~index]
 
-	def index(self, value:Any, start=0, stop=None, /):
+	def index(self, value:Any, start:int=0, stop:OPINT=None, /) -> int:
 		n = len(data := self.data)
 		getindex = data.index
 		if not start and stop is None:
@@ -282,13 +285,13 @@ class Ranged(BaseSequence):
 		else:
 			return False
 
-	def index(self, value, start=0, stop=None, /):
+	def index(self, value, start:int=0, stop:OPINT=None, /):
 		if indices := self.r[start:stop]:
 			return self._index(value, indices)
 		else:
 			self.value_error(value)
 
-	def count(self, value, start=0, stop=None, /):
+	def count(self, value, start:int=0, stop:OPINT=None, /):
 		if indices := self.r[start:stop]:
 			return self._count(value, indices)
 		else:
@@ -462,7 +465,7 @@ class chain(BaseSequence):
 
 	__contains__, count = map(cc_func, (any, sum), CC_MAP)
 
-	def index(self, value, start=0, stop=None, /) -> int:
+	def index(self, value, start=0, stop:OPINT=None, /) -> int:
 		data = self.data
 		size = [*it.accumulate(get_sizes(data), initial=0)]
 		if stop is None and not start:
@@ -586,7 +589,7 @@ class mul(RelativeSized):
 	def count(self, value, /) -> int:
 		return (r := self.times) and self.data.count(value) * r
 
-	def index(self, value, start=0, stop=None, /) -> int:
+	def index(self, value, start=0, stop:OPINT=None, /) -> int:
 		index = self.data.index
 		if (r := self.times):
 			if stop is None and not start:
@@ -616,7 +619,7 @@ class Repeats(mul):
 			return from_iterable(fmap(data, irepeat(self.times)))
 		return __iter__
 
-	def index(self, value, start=0, stop=None, /) -> int:
+	def index(self, value, start=0, stop:OPINT=None, /) -> int:
 		if not (r := self.times):
 			self.value_error(value)
 		index = self.data.index
@@ -642,7 +645,7 @@ class SubSequence(BaseSequence):
 	def __contains__(self, value, /):
 		return self._check(value) and self._contains(value)
 
-	def index(self, value, /, start=0, stop=maxsize):
+	def index(self, value, /, start:int=0, stop:OPINT=None):
 		if self._check(value):
 			return self._index(value, start, stop)
 		else:
@@ -1060,10 +1063,10 @@ class Progression(Ranged):
 	__len__ = __bool__ = dunder_method('r')
 
 	def _getitem(self, index:int, /):
-		return self._a1 + (index * self._d)
+		return self.a1 + (index * self.d)
 
 	def _getindex(self, number:Number, /):
-		return (number - self._a1) / self._d
+		return (number - self.a1) / self.d
 
 	@property
 	def start(self, /) -> Number:
@@ -1071,7 +1074,7 @@ class Progression(Ranged):
 
 	@property
 	def step(self, /) -> Number:
-		return self._d * self.r.step
+		return self.d * self.r.step
 
 	@property
 	def stop(self, /) -> Number:
@@ -1084,13 +1087,13 @@ class Progression(Ranged):
 
 	def iterfunc(reverse, /):
 		def __iter__(self, /):
-			step = self.step
+			step = (r := self.r).step
 			if reverse:
 				start = self.last
 				step = -step
 			else:
 				start = self.start
-			return it.islice(it.count(start, step), len(self.r))
+			return it.islice(it.count(start, self.step * r.step), len(r))
 		return __iter__
 
 	def count(self, number:Number, /) -> int:
@@ -1099,6 +1102,17 @@ class Progression(Ranged):
 	def index(self, number:Number, /) -> int:
 		return self.r.index(self._getindex(number))
 
+	
+	@classmethod
+	@slicer
+	def fromrange(cls, slicer, /):
+		'''Create Progression from a range. The stop argument will not be
+		preserved if the (stop - last_range_number) != step'''
+		check_step(step := slicer.step)
+		stop, start = slicer.stop, slicer.start
+		diff = stop - start if step > 0 else start - stop
+		return cls(range(math.ceil(diff / step)), start, step)
+
 
 del (maxsize, abc, ITII, UserDict, simple_compose, UserList, partializer,
-	dunder_method, unassigned_method, fromcls)
+	dunder_method, unassigned_method, fromcls, OPINT)
