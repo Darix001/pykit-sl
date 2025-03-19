@@ -657,7 +657,7 @@ class chunked(RelativeSized, SubSequence):
 	'''split the given sequence in iterables of n size.'''
 
 	def __post_init__(self, /):
-		if op.index(self.r) < 0:
+		if self.r < 0:
 			raise ValueError("n must be greater than zero")
 
 	def __getitem__(self, index, /):

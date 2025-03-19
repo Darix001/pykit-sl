@@ -154,7 +154,7 @@ def primefactors(n:Number, /) -> Generator[Number]:
     for i in range(3, isqrt1(n), 2):
          
         # while i divides n , print i ad divide n
-        while True
+        while True:
             div, mod = divmod(n, i)
             
             if mod:
