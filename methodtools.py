@@ -1,10 +1,11 @@
-import __future__, builtins, operator as op, itertools as it
+import __future__, builtins, operator as op
 
 from reprlib import Repr
 from typing import Any
 from collections import UserList
-from types import FunctionType, CodeType, MethodType
+from types import FunctionType, CodeType
 from functools import update_wrapper, partial, wraps
+from .composetools import bicompose
 from collections.abc import (MappingView, __loader__, Callable, Iterable,
 	Mapping)
 
@@ -28,8 +29,6 @@ INPLACE = ('__iadd__', '__isub__', '__ifloordiv__', '__itruediv__', '__imod__',
 	'__iand__', '__ixor__',)
 
 UNARY = ('__abs__', '__pos__', '__neg__', '__invert__',)
-
-partializer = MethodType(MethodType, MethodType)
 
 
 class Base:
@@ -71,7 +70,8 @@ def method_adder(cls, method=None, /, **kwargs):
 	else:
 		return partial(add_method, **kwargs)
 
-def to_method(func, /) -> Callable:
+
+def to_method(func:Callable, /) -> Callable:
 	return lambda self, /: func(self)
 
 
@@ -80,12 +80,10 @@ def func_copy(func, /) -> Callable:
 	return update_wrapper(FunctionType(*func_args(func)), func, ASSIGNMENTS)
 
 
-def new_globals(cls, /):
-	def decorator(func, /):
-		function = FunctionType(func.__code__, cls(func.__globals__),
-			func.__name__, func.__closure__, func.__defaults__)
-		return update_wrapper(function, func)
-	return decorator
+def newglobals(func, globals, /):
+	function = FunctionType(func.__code__, globals,
+		func.__name__, func.__closure__, func.__defaults__)
+	return update_wrapper(function, func)
 
 
 class multiname_method(unassigned_method):
@@ -129,15 +127,13 @@ class set_name(unassigned_method):
 		
 
 
-def dunder_method(attr, /, module=builtins) -> set_name:
-	code = basecode.replace(co_names=('_', attr))
-	namespace = vars(module)
+def dunder_method(*attrs, module=builtins) -> set_name:
+	getter = attrgetter(*attrs)
 
-	@set_name
+	@multiname_method
 	def func(name, /):
-		return FunctionType(code, {'_':namespace[name.strip('_')]}, name)
+		return bicompose(namespace[name.strip('_')], getter)
 	
-	func.with_func = lambda func, /:FunctionType(code, {'_':func})
 	return func
 
 
@@ -257,7 +253,7 @@ def init(initial_string, size, field_names, defs, join, /):
 
 @constructor({}, '__new__', 'cls')
 def tuplenew(initial_string, size, field_names, defs, join, /):
-	return f"{initial_string}\ttuple.__new__(self, ({join}))"
+	return f"{initial_string}\ttuple.__new__(cls, ({join}))"
 
 
 def set_coname(func, /, dec=None):
@@ -279,20 +275,6 @@ def copy_fromcls(cls, /):
 	def factory(name, /):
 		return func_copy(getattr(cls, name))
 
-
-class fromcls:
-	'''Copy attrs from another class to the clas where it is defined ussing the
-	assigned names.'''
-	
-	def __init__(self, cls, /):
-		self.cls = cls
-
-	def __set_name__(self, cls, name, /):
-		setattr(cls, name, getattr(self.cls, name))
-
-
-def constfunc(value, /) -> Callable:
-	return it.repeat(value).__next__
 
 # class namespace:
 # 	'''Class that accepts dynamic attributes.
@@ -341,4 +323,4 @@ def constfunc(value, /) -> Callable:
 # # 	data['__slots__'] = fields
 
 
-del builtins, UserList, Repr
+del builtins, UserList, Repr, Any, MappingView, Callable, Mapping, Iterable

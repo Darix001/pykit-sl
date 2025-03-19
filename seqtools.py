@@ -2,42 +2,36 @@
 for dealing with seqtools in a more efficient way.'''
 from __future__ import annotations
 
-import itertools as it, math, operator as op, collections.abc as abc, \
-more_itertools as mit
+import itertools as it, math, operator as op
 
+
+from typing import Any
 from sys import maxsize
 from numbers import Number
-from typing import Any, NamedTuple, Optional
-from collections.abc import Sequence
+from types import MethodType
+from more_itertools import locate
 from dataclasses import dataclass, replace
 from functools import wraps, update_wrapper as wrap
 from collections import deque, UserDict, UserList, Counter
 
-from .rangetools import rargs
-from .methodtools import (
-	fromcls,
-	add_method,
-	MethodType,
-	partializer,
-	dunder_method,
-	unassigned_method,
-	)
-from .composetools import simple_compose
+from collections.abc import Sequence, Callable, Iterator, Iterable, Generator
+
+from .mixedtools import partializer
+from .composetools import bicompose
 
 
-from_iterable = it.chain.from_iterable
-irepeat = it.repeat
 div_index = {0, -1}.__contains__
-data_method = dunder_method('data')
-data_func = data_method.with_func
-cycle = simple_compose(irepeat, from_iterable)
 
-FROM_ITERTOOLS = 1
-R_NONE = irepeat(None)
-NEW_OBJ = classmethod(object.__new__)
-OPINT = Optional[int]
+cycle = bicompose(from_iterable := it.chain.from_iterable,
+	irepeat := it.repeat)
 
 mapper = partializer(map)
+
+FROM_ITERTOOLS = 1
+
+R_NONE = irepeat(None)
+
+OPINT = int | None
 
 MAP = [it.repeat, from_iterable, reversed, it.islice,
 op.itemgetter(slice(None, None, -1)), op.getitem,
@@ -49,71 +43,69 @@ CC_MAP = MAP[-2:]
 del MAP[-2:]
 get_sizes = MAP.pop()
 
-ITII = abc.Iterator[tuple[int, int]]
+ITII = Iterator[tuple[int, int]]
+
 NWISE_ITER = {1:zip, 2:it.pairwise}
+
 MAXSIZE_RANGE = range(maxsize)
+
 SENTINEL = object()
 
 
-def slicer(func, /) -> abc.Callable:
-	'''Decorator for functions wich accepts one argument and range arguments.:
-	function(iterable, stop)
-	function(iterable, start, stop[, step])'''
-	return wrap(lambda obj, /, *args: func(obj, slice(*args)), func)
+def slicer(func:Callable, /) -> Callable:
+	'''Decorator for functions wich accepts one argument and range arguments'''
+	def function(obj, /, *args):
+		return func(obj, slice(*args))
+	
+	function.__doc__ = f'{name}(obj, stop)\n{name}(obj, start, stop[, step])'
+	
+	return function
 
 
-def efficient_nwise(iterable:abc.Iterable, n:int) -> abc.Generator[deque]:
+def efficient_nwise(iterable:Iterable, n:int) -> Generator[deque]:
 	'''Yields efficients nwise views of the given iterable re-using a
 	collections.deque object.'''
-	
 	data = deque(it.islice(iterable := iter(iterable), n - 1), n)
-	return it.dropwhile(data.append, iterable)
+	for _ in map(data.append, iterable):
+		return data
 
 
-def getitems(data:Sequence, items, /) -> abc.Iterator:
+def getitems(data:Sequence, items, /) -> Iterator:
 	'''fetchs and Yields each item of the data object.'''
 	return map(data.__getitem__, items)
 
 
-def getslices(data:Sequence, subindices:abc.Iterator[abc.Iterator[int]]
-	) -> abc.Iterator:
+def getslices(data:Sequence, subindices:Iterator[Iterator[int]]
+	) -> Iterator:
 	'''fetchs and Yields each slices of the data object given a group of indices'''
 	return map(data.__getitem__, it.starmap(slice, subindices))
 
 
 def checker(cls, /):
 	'''Creates a Check method for SubSequence subclasses'''
+	return lambda self, obj, /: obj.__class__ is cls and len(obj) == self.r
 
-	return unassigned_method(
-		lambda self, obj, /: obj.__class__ is cls and len(obj) == self.r)
+
+def datamethod(func, /) -> Callable:
+	return lambda self,/: func(self.data)
+
+
+databool = datamethod(any), datamethod(all)
 
 
 def comb_len(cls, /) -> type:
 	'''Decorator for combinations and permutation classes that computes their get_sizes based
 	on their respective math function.'''
-
 	func = getattr(math, cls.__name__[:4])
-	
-	def __len__(self, /):
-		return func(len(self.data), self.r)
-
-	add_method(cls, __len__)
-	
+	cls.__len__ = lambda self, /: func(len(self.data), self.r)
 	return cls
 
 
 def multidata(cls, /) -> type:
 	'''Decorator for sequence that accepts multiple sequence and base
 	their size on the sizes of their sequences.'''
-	namespace = vars(cls)
-	if len_func := namespace.get('__len__'):
-		def __len__(self, /):
-			return len_func(get_sizes(self.data))
-		add_method(cls, __len__)
-
-	if bool_func := namespace.get('__bool__'):
-		add_method(cls, data_func(bool_func), '__bool__')
-
+	func = cls.__len__
+	cls.__len__ = lambda self, /: func(get_sizes(self.data))
 	return cls
 
 
@@ -160,16 +152,16 @@ def all_equals(data:Sequence, /) -> bool:
 	return data.count(data[0]) == len(data)
 
 
-def sub(data:Sequence, values:Sequence, start:int=0, stop:int=maxsize, /):
-	first = values[0]
-	values = islice_(values, MAXSIZE_RANGE[diff:])
-	while diff:
-		index = start = data.index(first, start, stop)
-		for start, value in enumerate(values, start + diff):
-			if diff := value != data[start]:
-				start += diff
-				break
-	return index
+# def sub(data:Sequence, values:Sequence, start:int=0, stop:OPINT=None, /):
+# 	first = values[0]
+# 	values = islice_(values, range(diff, len()))
+# 	while diff:
+# 		index = start = data.index(first, start, stop)
+# 		for start, value in enumerate(values, start + diff):
+# 			if diff := value != data[start]:
+# 				start += diff
+# 				break
+# 	return index
 
 
 class BaseSequence(Sequence):
@@ -177,13 +169,13 @@ class BaseSequence(Sequence):
 	__slots__ = ()
 	iterfunc = None
 	_replace = replace
-	_new = NEW_OBJ
+	_new = classmethod(object.__new__)
 	
 	def __init_subclass__(cls, /, iterfunc=None):
 		if factory := cls.iterfunc:
-			cls.iterfunc = None
+			del cls.iterfunc
 			iterfunc = factory(None)
-			add_method(cls, factory(True), '__reversed__')
+			cls.__reversed__ = factory(True)
 
 		elif iterfunc:
 			if iterfunc == FROM_ITERTOOLS:
@@ -197,7 +189,7 @@ class BaseSequence(Sequence):
 		else:
 			return
 
-		add_method(cls, iterfunc)
+		cls.__iter__ = iterfunc
 
 	
 	def value_error(self, value, /):
@@ -212,8 +204,14 @@ class SequenceView(BaseSequence):
 	'''A view over a new sequence.'''
 	__slots__ = 'data'
 	data:Sequence
-	index = count = fromcls(UserList)
+	
+	index, count = UserList.index, UserList.count
+	
+	__len__, __contains__ = UserList.__len__, UserList.__contains__
+	
+	__iter__ = UserDict.__iter__
 
+	
 	def __getitem__(self, index, /):
 		data = self.data
 		if type(index) is slice:
@@ -226,9 +224,10 @@ class SequenceView(BaseSequence):
 		else:
 			return data[index]
 
-	__reversed__ = __bool__ = data_method
+		
+	__reversed__ = datamethod(reversed)
 
-	__len__ = __contains__ = __iter__ = fromcls(UserDict)
+	__bool__ = datamethod(bool)
 
 	def __mul__(self, n, /):
 		return mul(self.data, n)
@@ -237,8 +236,7 @@ class SequenceView(BaseSequence):
 class ReverseView(SequenceView):
 	'''Reversed View of a sequence data'''
 	__slots__ = ()
-	__reversed__ = SequenceView.__iter__
-	__iter__ = SequenceView.__reversed__
+	__reversed__, __iter__ = SequenceView.__iter__, SequenceView.__reversed__
 
 	def __getitem__(self, index, /):
 		data = self.data
@@ -262,8 +260,8 @@ class ReverseView(SequenceView):
 
 
 class Size(SequenceView):
-	__slots__ = ()
 	'''Base Class for sequence wrappers that transform their sequence size.'''
+	__slots__ = ()
 
 	def __bool__(self, /):
 		return True if self.data and self.r else False
@@ -317,9 +315,9 @@ class indexed(Size, Ranged):
 		return indices.index(self.data.index(obj))
 
 	def _count(self, obj, indices, /):
-		return sum(map(Counter(indices).get, mit.locate(self.data, obj)))
+		return sum(map(Counter(indices).get, locate(self.data, obj)))
 
-	def unpack(self, /):
+	def unpack(self, /) -> Iterator:
 		return getitems(self.data, self.r)
 
 
@@ -333,8 +331,8 @@ class islice_(indexed):
 	
 	def __iter__(self, /):
 		gen = iter(data := self.data)
-		start, stop, step = rargs(r := self.r)
-		if start:
+		stop, step = r.stop, r.step
+		if start := r.start:
 			try:
 				gen.__setstate__(start)
 			except AttributeError:
@@ -397,7 +395,7 @@ class islice_(indexed):
 				return super().count(value)
 		return 0
 
-	def unpack(self, /):
+	def unpack(self, /) -> Iterator:
 		return self.data[(r := self.r).start:r.stop:r.step]
 
 
@@ -409,7 +407,7 @@ class chain(BaseSequence):
 
 	__len__ = sum
 
-	__bool__ = any
+	__bool__ = databool[0]
 
 	def __init__(self, /, *sequences):
 		self.data = sequences
@@ -449,9 +447,10 @@ class chain(BaseSequence):
 				break
 		return self
 			
-	__iter__ = data_func(from_iterable)
+	__iter__ = datamethod(from_iterable)
 
-	__reversed__ = data_func(simple_compose(from_iterable, MAP[2], reversed))
+	def __reversed__(self, /):
+		return from_iterable(MAP[2](reversed(self.data)))
 	
 	def __add__(self, value, /):
 		if self.__class__ is value.__class__:
@@ -492,8 +491,8 @@ class chain(BaseSequence):
 		self.value_error(value)
 
 	@classmethod
-	def from_iterable(cls, data:Sequence[Sequence], /):
-		(self := cls._new()).data = data
+	def fromsequence(cls, data:Sequence[Sequence], /):
+		(self := cls()).data = data
 		return self
 	
 
@@ -611,12 +610,14 @@ class Repeats(mul):
 			return self.data[index // r]
 		self.IndexError()
 
-	def iterfunc(reverse, fmap=MAP[0], /):
+	__mul__ = SequenceView.__mul__
+
+	def iterfunc(reverse, /):
 		def __iter__(self, /):
 			data = self.data
 			if reverse:
 				data = reversed(data)
-			return from_iterable(fmap(data, irepeat(self.times)))
+			return from_iterable(MAP[0](data, irepeat(self.r)))
 		return __iter__
 
 	def index(self, value, start=0, stop:OPINT=None, /) -> int:
@@ -627,10 +628,6 @@ class Repeats(mul):
 			return index(value) * r
 		start, mod = divmod(start, r)
 		return (index(value, start, stop//r) * r) + mod
-
-	def unpack(self, /):
-		cls = type(data := self.data)
-		return cls(MAP[0](data, irepeat(self.r)))
 
 
 class SubSequence(BaseSequence):
@@ -721,9 +718,6 @@ class matrix(chunked):
 			return getslices(self.data, self._indexes(reverse))
 		return __iter__
 
-	def unpack(self, /):
-		return type(self.data)(self)
-
 	def _check(self, value, /) -> bool:
 		return value.__class__ is self.data.__class__ and len(value) == self.r
 
@@ -732,9 +726,8 @@ class matrix(chunked):
 
 class batched(chunked, iterfunc=FROM_ITERTOOLS):
 	"""Same as it.batched but as a sequence."""
-
-	def __reversed__(self, /):
-		return MAP[4](it.batched(reversed(self.data), self.r))
+	def __iter__(self, /):
+		return it.batched(self.data, self.r)
 
 	def _getitem(self, slice_obj, /):
 		return tuple(getitems(self.data, MAXSIZE_RANGE[slice_obj]))
@@ -749,7 +742,7 @@ class Zip(SubSequence):
 		self.data = sequences
 		self.strict = strict
 
-	__bool__ = all
+	__bool__ = databool[1]
 
 	__len__ = min
 
@@ -838,7 +831,7 @@ class zip_longest(Zip):
 		self.data = sequences
 		self.fillvalue = fillvalue
 
-	__bool__ = any
+	__bool__ = databool[0]
 
 	__len__ = max
 
@@ -934,12 +927,10 @@ class Product(combinations, RelativeSized):
 	'''Same as it.product but acts as a sequence.'''
 	data:tuple[Sequence]
 
-	__bool__ = all
+	__bool__ = databool[1]
 
 	def __mul__(self, r, /):
-		new = cls._new()
-		new.data = self.data
-		new.r = self.r * r
+		return type(self)(self.data, self.r * r)
 
 	def __getitem__(self, index, /):
 		data, size, _, r, n = self.stats()
@@ -1060,7 +1051,12 @@ class Progression(Ranged):
 	def __contains__(self, number, /):
 		return self._getindex(number) in self.r
 
-	__len__ = __bool__ = dunder_method('r')
+	def rfunc(func, /):
+		return lambda self, /:func(self.r)
+
+	__len__, __bool__ = rfunc(len), rfunc(bool)
+
+	del rfunc
 
 	def _getitem(self, index:int, /):
 		return self.a1 + (index * self.d)
@@ -1093,7 +1089,7 @@ class Progression(Ranged):
 				step = -step
 			else:
 				start = self.start
-			return it.islice(it.count(start, self.step * r.step), len(r))
+			return it.islice(it.count(start, self.step * step), len(r))
 		return __iter__
 
 	def count(self, number:Number, /) -> int:
@@ -1107,12 +1103,29 @@ class Progression(Ranged):
 	@slicer
 	def fromrange(cls, slicer, /):
 		'''Create Progression from a range. The stop argument will not be
-		preserved if the (stop - last_range_number) != step'''
-		check_step(step := slicer.step)
-		stop, start = slicer.stop, slicer.start
-		diff = stop - start if step > 0 else start - stop
-		return cls(range(math.ceil(diff / step)), start, step)
+		preserved if (stop - last_range_number) != step'''
+		if step := slicer.step is None:
+			growing = step = 1
+		
+		else:
+			check_step(step)
+			growing = step > 0
+		
+		stop = slicer.stop
+
+		if (start := slicer.start) is None:
+			start = 1
+			n = math.trunc(slicer.stop)
+		
+		elif (start == stop) or (growing and start > stop) or (start < stop):
+			n = 0
+		
+		else:
+			diff = stop - start if growing else start - stop
+			n = math.ceil(diff / abs(step))
+		
+		return cls(range(n), start, step)
 
 
-del (maxsize, abc, ITII, UserDict, simple_compose, UserList, partializer,
-	dunder_method, unassigned_method, fromcls, OPINT)
+del (maxsize, ITII, UserDict, bicompose, UserList, partializer, OPINT,
+	Iterator, Iterable, Generator, Callable, Sequence)

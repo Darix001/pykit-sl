@@ -3,12 +3,14 @@ from types import (MethodType as Bounder, SimpleNamespace as bounders,
 	FunctionType)
 from functools import wraps
 
+
 def composer(func) -> Callable:
 	@wraps(func)
 	def function(*args:tuple[Callable], doc=None) -> Callable:
 		(composed_func := func(args)).__doc__ = doc
 		return composed_func
 	return function
+
 
 @composer
 def compose(args, /):
@@ -56,5 +58,5 @@ def simple_class_compose(*args:tuple[Callable], doc = None) -> classmethod:
 	return func
 
 
-def revert_args(func, /):
-	return lambda *args: func(args[::-1])
+def bicompose(f1:Callable, f2:Callable):
+	return lambda obj, /: f1(f2(obj))

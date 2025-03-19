@@ -16,4 +16,4 @@ def with_args(args, /, *funcs, iterations:Integral=100) -> dict[Callable, int]:
 
 def benchsort(*funcs, iterations:Integral=100) -> dict[Callable, int]:
 	data = Counter(repeatfunc(fastest_timer, iterations, *map(Timer, funcs)))
-	return {tm.inner.__defaults__[0]:n for tm, n in data.most_common()}
+	return {timer.inner.__defaults__[0]:n for timer,n in data.most_common()}
