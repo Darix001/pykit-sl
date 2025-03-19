@@ -1,8 +1,8 @@
 import operator as op, re
 
 from numbers import Number
-from types import MethodType
 from typing import Optional
+from types import MethodType
 from bitarray import bitarray
 from math import trunc, isqrt, ceil
 from itertools import count, compress, islice
