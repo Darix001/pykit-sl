@@ -5,7 +5,7 @@ from collections.abc import Callable
 from more_itertools import repeatfunc
 
 
-fastestimer = partial(min, key=Timer.timeit)
+fastest = partial(min, key=Timer.timeit)
 
 fastestfunc = partial(min, key=timeit)
 
