@@ -87,6 +87,11 @@ def checker(cls, /):
 	return lambda self, obj, /: obj.__class__ is cls and len(obj) == self.r
 
 
+def check_step(step:int, /):
+	if not step:
+		raise TypeError("Step Argument must not be zero.")
+
+
 def datamethod(func:Callable, /) -> Callable:
 	return lambda self,/: func(self.data)
 
@@ -505,9 +510,6 @@ class Repeat(Ranged):
 				return cls(value, self.r.stop + value.r.stop)
 		return NotImplemented
 	
-	def __repr__(self, /):
-		return f"repeat({self.value!r}, {self.r.stop!r})"
-
 	def _getitem(self, index:int, /):
 		return self.value
 
