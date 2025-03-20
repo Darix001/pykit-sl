@@ -68,13 +68,13 @@ def sieve(x:int, /) -> Iterator[int]:
     return _cc2(data)
 
 
-def gauss_sum(start:int, stop:int|None = None, /) -> int:
-    '''Sum of all numbers from start to stop.'''
-    s1 = start + 1
-    if stop is None:
-        return start * s1 // 2
-    else:
-        return trunc(((stop - s1) / 2) * (stop + start))
+try:
+    from _lib import gauss_sum
+
+except ImportError:
+    def gauss_sum(n:int, /) -> int:
+        '''Sum of all numbers from start to stop.'''
+        return n * (n + 1) // 2
 
 
 def collatz(x:Number, /) -> Generator[Number]:

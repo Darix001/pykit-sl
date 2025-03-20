@@ -228,15 +228,18 @@ def copy_fromcls(cls, /):
 		return func_copy(getattr(cls, name))
 
 
-def dunder_method(module):
+def dunder_method(module, strip=None):
 	def decorator(func, /):
-		return multiname_method(lambda name, /: func(getattr(module, name)))
+		@multiname_method
+		def function(name, /):
+			return func(getattr(module, name.strip('_') if strip else name))
+		return function
 	return decorator
 
 
 operator_method = dunder_method(operator)
 
-builtin_method = dunder_method(builtins)
+builtin_method = dunder_method(builtins, strip=True)
 
 
 # class namespace:
