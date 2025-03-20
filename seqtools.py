@@ -91,19 +91,19 @@ def datamethod(func:Callable, /) -> Callable:
 	return lambda self,/: func(self.data)
 
 
+def zipbool(func:Callable, /) -> Callable:
+	return lambda self,/: True if (data := self.data) and func(data) else False
+
+
+def calcsize(func:Callable, /) -> Callable:
+	return lambda self, /: func(get_sizes(self.data))
+
+
 def comb_len(cls, /) -> type:
 	'''Decorator for combinations and permutation classes that computes their get_sizes based
 	on their respective math function.'''
 	func = getattr(math, cls.__name__[:4])
 	cls.__len__ = lambda self, /: func(len(self.data), self.r)
-	return cls
-
-
-def multidata(cls, /) -> type:
-	'''Decorator for sequence that accepts multiple sequence and base
-	their size on the sizes of their sequences.'''
-	func = cls.__len__
-	cls.__len__ = lambda self, /: func(get_sizes(self.data))
 	return cls
 
 
@@ -379,13 +379,12 @@ class islice_(indexed):
 		return self.data[(r := self.r).start:r.stop:r.step]
 
 
-@multidata
 class chain(SequenceView):
 	'''Same as it.chain but as a sequence.'''
 	__slots__ = ()
 	data:tuple[Sequence]
 
-	__len__ = sum
+	__len__ = calcsize(sum)
 
 	__bool__ = datamethod(all)
 
@@ -730,7 +729,6 @@ class batched(chunked):
 		return tuple(getitems(self.data, MAXSIZE_RANGE[slice_obj]))
 
 
-@multidata
 class Zip(SubSequence):
 	"""Same as builtins.zip but as a sequence."""
 	__slots__ = 'strict'
@@ -740,10 +738,9 @@ class Zip(SubSequence):
 		self.data = sequences
 		self.strict = strict
 
-	def __bool__(self, /):
-		return True if (data := self.data) and all(data) else False
+	__bool__ = zipbool(all)
 
-	__len__ = min
+	__len__ = calcsize(min)
 
 	def __getitem__(self, index, /):
 		data = self.data
@@ -828,7 +825,6 @@ class Zip(SubSequence):
 		self.value_error(values)
 
 
-@multidata
 class zip_longest(Zip):
 	'''Same as it.zip_longest but as a sequence.'''
 	__slots__ = 'fillvalue'
@@ -837,10 +833,9 @@ class zip_longest(Zip):
 		self.data = sequences
 		self.fillvalue = fillvalue
 
-	def __bool__(self, /):
-		return True if (data := self.data) and any(data) else False
+	__bool__ = zipbool(any)
 
-	__len__ = max
+	__len__ = calcsize(max)
 
 	def __getitem__(self, index, /):
 		if type(index) is slice:
@@ -928,7 +923,6 @@ def product(*args, repeat:int=1):
 	return product(args, repeat)
 
 
-@multidata
 class Product(combinations):
 	'''Same as it.product but acts as a sequence.'''
 	data:tuple[Sequence]
