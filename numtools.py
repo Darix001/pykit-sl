@@ -11,13 +11,12 @@ from collections.abc import Callable, Generator, Iterator
 
 bitarray = bitarray('1')
 operator_funcs = {
-    '':op.add, '+':op.add, '-':op.sub, '*':op.mul, '/':op.truediv,
-    '//':op.floordiv, '**':op.pow,
+    '':op.add, '+':op.add, '-':op.sub, '*':op.mul, '/':op.truediv, '**':op.pow,
+    '//':op.floordiv,
     
     '&':op.and_, '|':op.or_, '^':op.xor, '%':op.mod, '@':op.matmul,
     
-     '>':op.gt, '>=':op.ge, '<':op.lt, '<=':op.le,
-    '==':op.eq, '!=':op.ne
+     '>':op.gt, '>=':op.ge, '<':op.lt, '<=':op.le, '==':op.eq, '!=':op.ne,
     }
 re = re.compile(r'[-+]?(?:\d*\.*\d+)')
 
@@ -94,12 +93,11 @@ def ndigits(x:int, /) -> int:
     return (10 ** i <= abs(x)) + i
 
 
-def sumdigits(x:int, /, start:int = 0) -> int:
+def digits(x:int, /) -> int:
     '''Sum of all x's digits.'''
     while x:
         x, mod = divmod(x, 10)
-        start += mod
-    return start
+        yield mod
 
 
 def nbytes(x:int, /) -> int:
@@ -125,18 +123,18 @@ def isqrt1(n:Number, /) -> int:
     return isqrt(n) + 1
 
 
-def factors(n:int, /) -> set[int]:
-    '''Returns all the factors of integer
-    Extracted from Stack Overflow: https://stackoverflow.com/a/6800214'''
-    x = set()
+def factors(n:int, /) -> Generator[int]:
+    '''Returns all the factors of integer. This code is a variation of the
+    source code from Stack Overflow: https://stackoverflow.com/a/6800214'''
+    yield 1
+    yield n
 
-    for i in range(1, isqrt1(n)):
+    for i in range(2, isqrt1(n)):
         div, mod = divmod(n, i)
 
         if not mod:
-            x.add(i)
-            x.add(div)
-    return x
+            yield i
+            yield div
 
 
 def primefactors(n:Number, /) -> Generator[Number]:
@@ -153,7 +151,6 @@ def primefactors(n:Number, /) -> Generator[Number]:
     # so a skip of 2 ( i = i + 2) can be used
     for i in range(3, isqrt1(n), 2):
          
-        # while i divides n , print i ad divide n
         while True:
             div, mod = divmod(n, i)
             

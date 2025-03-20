@@ -10,9 +10,9 @@ from sys import maxsize
 from numbers import Number
 from types import MethodType
 from more_itertools import locate
-from dataclasses import dataclass, replace
 from functools import wraps, update_wrapper as wrap
 from collections import deque, UserDict, UserList, Counter
+from dataclasses import dataclass, replace, make_dataclass
 
 from collections.abc import Sequence, Callable, Iterator, Iterable, Generator
 
@@ -57,6 +57,7 @@ def slicer(func:Callable, /) -> Callable:
 	def function(obj, /, *args):
 		return func(obj, slice(*args))
 	
+	name = func.__name__
 	function.__doc__ = f'{name}(obj, stop)\n{name}(obj, start, stop[, step])'
 	
 	return function
@@ -86,7 +87,7 @@ def checker(cls, /):
 	return lambda self, obj, /: obj.__class__ is cls and len(obj) == self.r
 
 
-def datamethod(func, /) -> Callable:
+def datamethod(func:Callable, /) -> Callable:
 	return lambda self,/: func(self.data)
 
 
@@ -169,28 +170,11 @@ class BaseSequence(Sequence):
 	__slots__ = ()
 	iterfunc = None
 	_replace = replace
-	_new = classmethod(object.__new__)
 	
-	def __init_subclass__(cls, /, iterfunc=None):
-		if factory := cls.iterfunc:
+	def __init_subclass__(cls, /):
+		if (factory := cls.iterfunc) is not None:
+			cls.__iter__, cls.__reversed__ = map(factory, (None, True))
 			del cls.iterfunc
-			iterfunc = factory(None)
-			cls.__reversed__ = factory(True)
-
-		elif iterfunc:
-			if iterfunc == FROM_ITERTOOLS:
-				func = getattr(it, cls.__name__)
-			else:
-				func = iterfunc
-			def __iter__(self, /):
-				return func(**vars(self))
-			iterfunc = __iter__
-
-		else:
-			return
-
-		cls.__iter__ = iterfunc
-
 	
 	def value_error(self, value, /):
 		raise ValueError(f"{value!r} not in {self.__class__.__name__}")
@@ -210,7 +194,6 @@ class SequenceView(BaseSequence):
 	__len__, __contains__ = UserList.__len__, UserList.__contains__
 	
 	__iter__ = UserDict.__iter__
-
 	
 	def __getitem__(self, index, /):
 		data = self.data
@@ -400,9 +383,9 @@ class islice_(indexed):
 
 
 @multidata
-class chain(BaseSequence):
+class chain(SequenceView):
 	'''Same as it.chain but as a sequence.'''
-	__slots__ = 'data'
+	__slots__ = ()
 	data:tuple[Sequence]
 
 	__len__ = sum
@@ -432,21 +415,24 @@ class chain(BaseSequence):
 		start, stop, step = index.indices(sum(size))
 		key = step != 1
 		values = []
-		self = self._replace(data = values)
 		
 		for seq, size in zip(data, size):
 			values.append(seq := seq[start:stop:step])
 			if key:
 				start = (step - ((((size - 1) - start) % step)) - 1)
+			
 			elif start:
 				if seq:
 					start = 0
 				else:
 					start -= size
+			
 			if (stop := (stop - size)) <= 0:
 				break
-		return self
+		
+		return type(self)(*values)
 			
+	
 	__iter__ = datamethod(from_iterable)
 
 	def __reversed__(self, /):
@@ -464,6 +450,8 @@ class chain(BaseSequence):
 
 	__contains__, count = map(cc_func, (any, sum), CC_MAP)
 
+	del cc_func
+
 	def index(self, value, start=0, stop:OPINT=None, /) -> int:
 		data = self.data
 		size = [*it.accumulate(get_sizes(data), initial=0)]
@@ -478,8 +466,10 @@ class chain(BaseSequence):
 		else:
 			if start < 0:
 				start += size[-1]
+		
 			if stop < 0:
 				stop +=	 size[-1]
+		
 			for data, (size, n) in zip(data, it.pairwise(size)):
 				if (r := (start - size)) < n and (n := (stop - size)) > 0:
 					try:
@@ -488,17 +478,13 @@ class chain(BaseSequence):
 						pass
 					else:
 						return value + size
+		
 		self.value_error(value)
-
+	
 	@classmethod
 	def fromsequence(cls, data:Sequence[Sequence], /):
 		(self := cls()).data = data
 		return self
-	
-
-@dataclass(init=False, frozen=True)
-class RelativeSized(Size):
-	r:int
 
 
 @dataclass(frozen=True)
@@ -548,9 +534,13 @@ class Repeat(Ranged):
 		return [self.value] * self.r.stop
 
 
-@dataclass(frozen=True)
+RelativeSized = make_dataclass('RelativeSized', (('r', int),),
+	frozen=True, slots=True, bases=(Size,))
+
+
 class mul(RelativeSized):
 	'''Emulates a data sequence multiplied r times.'''
+	__slots__ = ()
 
 	def __mul__(self, r, /):
 		return self.__replace(r=self.r * r)
@@ -604,13 +594,15 @@ class mul(RelativeSized):
 
 class Repeats(mul):
 	'''Emulates a sequence with each elements repeated r times.'''
+	__slots__ = ()
 
+	__mul__ = SequenceView.__mul__
+	
 	def __getitem__(self, index, /):
 		if (r := self.times):
 			return self.data[index // r]
-		self.IndexError()
-
-	__mul__ = SequenceView.__mul__
+		else:
+			self.IndexError()
 
 	def iterfunc(reverse, /):
 		def __iter__(self, /):
@@ -623,15 +615,19 @@ class Repeats(mul):
 	def index(self, value, start=0, stop:OPINT=None, /) -> int:
 		if not (r := self.times):
 			self.value_error(value)
+		
 		index = self.data.index
+		
 		if stop is None and not start:
 			return index(value) * r
+		
 		start, mod = divmod(start, r)
 		return (index(value, start, stop//r) * r) + mod
 
 
-class SubSequence(BaseSequence):
+class SubSequence(SequenceView):
 	'''Base Class for sequences of sequences'''
+	__slots__ = ()
 
 	_index, _count = Sequence.index, Sequence.count
 
@@ -652,9 +648,9 @@ class SubSequence(BaseSequence):
 		return self._count(value) if self._check(value) else 0
 
 
-@dataclass(frozen=True)
 class chunked(RelativeSized, SubSequence):
 	'''split the given sequence in iterables of n size.'''
+	__slots__ = ()
 
 	def __post_init__(self, /):
 		if self.r < 0:
@@ -712,6 +708,8 @@ class chunked(RelativeSized, SubSequence):
 
 class matrix(chunked):
 	'''Acts as it like the given sequence was splitted in rows of r size.'''
+	__slots__ = ()
+
 
 	def iterfunc(reverse, /):
 		def __iter__(self, /):
@@ -724,8 +722,10 @@ class matrix(chunked):
 	_getitem  = op.getitem
 
 
-class batched(chunked, iterfunc=FROM_ITERTOOLS):
+class batched(chunked):
 	"""Same as it.batched but as a sequence."""
+	__slots__ = ()
+	
 	def __iter__(self, /):
 		return it.batched(self.data, self.r)
 
@@ -736,6 +736,7 @@ class batched(chunked, iterfunc=FROM_ITERTOOLS):
 @multidata
 class Zip(SubSequence):
 	"""Same as builtins.zip but as a sequence."""
+	__slots__ = 'strict'
 	data:tuple[Sequence]
 
 	def __init__(self, /, *sequences:tuple[Sequence], strict:bool=False):
@@ -809,23 +810,30 @@ class Zip(SubSequence):
 			if start is not None:
 				indices = [seq.index(value, start,
 					stop) for value, seq in zip(values, data)]
+			
 			else:
 				indices = [*map(op.indexOf, data, values)]
+			
 			maxvalue = max(indices)
 			stop = maxvalue + 1
 			n = len(data)
+			
 			while indices.count(maxvalue) != n:
 				iterable = enumerate(zip(data, values, indices))
+			
 				for index, (seq, value, start) in iterable:
 					if start != maxvalue:
 						indices[index] = seq.index(value, start + 1, stop)
+			
 			return maxvalue
+		
 		self.value_error(values)
 
 
 @multidata
 class zip_longest(Zip):
 	'''Same as it.zip_longest but as a sequence.'''
+	__slots__ = 'fillvalue'
 
 	def __init__(self, /, *sequences, fillvalue=None):
 		self.data = sequences
@@ -922,8 +930,7 @@ def product(*args, repeat:int=1):
 
 
 @multidata
-@dataclass(frozen=True)
-class Product(combinations, RelativeSized):
+class Product(combinations):
 	'''Same as it.product but acts as a sequence.'''
 	data:tuple[Sequence]
 
@@ -996,7 +1003,7 @@ class Product(combinations, RelativeSized):
 
 
 @dataclass(frozen=True)
-class enumerated(SubSequence, iterfunc=enumerate):
+class enumerated(SubSequence):
 	"""Same as builtins.enumerate but as a sequence."""
 	start:int=0
 
@@ -1006,12 +1013,13 @@ class enumerated(SubSequence, iterfunc=enumerate):
 		if index < 0:		
 			index += len(data)
 		return (index + self.start, value)
+
+	def __iter__(self, /):
+		return enumerate(self.data, self.start)
 	
 	def __reversed__(self, /):
 		data = self.data	
 		return zip(it.count(self.start + len(data) - 1, -1), reversed(data))
-
-	__len__, __bool__ = SequenceView.__len__, SequenceView.__bool__
 
 	def _check(self, value, /):
 		return value.__class__ is tuple and len(value) == 2
