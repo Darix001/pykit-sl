@@ -1,34 +1,22 @@
-import __future__, builtins, operator as op
+import __future__, builtins, operator
 
 from reprlib import Repr
 from typing import Any
+from operator import attrgetter
 from collections import UserList
 from types import FunctionType, CodeType
 from functools import update_wrapper, partial, wraps
-from .composetools import bicompose
 from collections.abc import (MappingView, __loader__, Callable, Iterable,
 	Mapping)
 
 
 basecode = UserList.__len__.__code__
  
-func_args = op.attrgetter('__code__', '__globals__', '__name__',
+func_args = attrgetter('__code__', '__globals__', '__name__',
 	'__defaults__', '__closure__')
 
 ASSIGNMENTS = ('__module__', '__qualname__', '__doc__', '__annotations__',
 	'__type_params__', '__kwdefaults__',)
-
-COMPARE = ('__eq__', '__ne__', '__lt__', '__le__', '__gt__', '__ge__',)
-
-BINARY = ('__add__', '__sub__', '__floordiv__', '__truediv__', '__mod__',
-	'__mul__', '__matmul__', '__rshift__', '__lshift__', '__or__', '__and__',
-	'__xor__',)
-
-INPLACE = ('__iadd__', '__isub__', '__ifloordiv__', '__itruediv__', '__imod__',
-	'__imul__', '__imatmul__', '__irshift__', '__ilshift__', '__ior__',
-	'__iand__', '__ixor__',)
-
-UNARY = ('__abs__', '__pos__', '__neg__', '__invert__',)
 
 
 class Base:
@@ -126,42 +114,6 @@ class set_name(unassigned_method):
 		setattr(cls, name, self.func(name))
 		
 
-
-def dunder_method(*attrs, module=builtins) -> set_name:
-	getter = attrgetter(*attrs)
-
-	@multiname_method
-	def func(name, /):
-		return bicompose(namespace[name.strip('_')], getter)
-	
-	return func
-
-
-class operator_method:
-	def __init__(self, func, /, namespace, methods):
-		self.func = partial(FunctionType, func.__code__, func.__globals__)
-		self.namespace = namespace
-		self.methods = methods
-
-	def __set_name__(self, cls, name, /):
-		methods = self.methods
-		defs = zip(map(self.namespace.get, methods))
-		for method in map(self.func, methods, defs):
-			add_method(cls, method)
-
-
-def op_method(methods, /, namespace=op.__dict__, rigth=None) -> partial:
-	if rigth:
-		namespace = {namespace.get(key.replace('__', '__r', 1),
-			namespace[key]) for key in methods}
-
-	def decorator(func, /):
-		if isinstance(func, operator_method):
-			methods += operator_method.methods
-			namespace |= operator_method.namespace
-		return operator_method(func, namespace, methods)
-
-
 compare_method = op_method(COMPARE)
 
 binary_method = op_method(BINARY)
@@ -172,7 +124,7 @@ unary_method = op_method(UNARY)
 
 
 
-getinitcode = op.attrgetter('__init__.__code__')
+getinitcode = attrgetter('__init__.__code__')
 
 inits = dict(
 	enumerate(
@@ -276,6 +228,17 @@ def copy_fromcls(cls, /):
 		return func_copy(getattr(cls, name))
 
 
+def dunder_method(module):
+	def decorator(func, /):
+		return multiname_method(lambda name, /: func(getattr(module, name)))
+	return decorator
+
+
+operator_method = dunder_method(operator)
+
+builtin_method = dunder_method(builtins)
+
+
 # class namespace:
 # 	'''Class that accepts dynamic attributes.
 # 	Similiar to sys.namespace, but this class keeps the key shared dict PEP
@@ -323,4 +286,5 @@ def copy_fromcls(cls, /):
 # # 	data['__slots__'] = fields
 
 
-del builtins, UserList, Repr, Any, MappingView, Callable, Mapping, Iterable
+del builtins, UserList, Repr, Any, MappingView, Callable, Mapping, Iterable,
+	attrgetter, operator

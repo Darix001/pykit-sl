@@ -91,9 +91,6 @@ def datamethod(func:Callable, /) -> Callable:
 	return lambda self,/: func(self.data)
 
 
-databool = datamethod(any), datamethod(all)
-
-
 def comb_len(cls, /) -> type:
 	'''Decorator for combinations and permutation classes that computes their get_sizes based
 	on their respective math function.'''
@@ -183,7 +180,7 @@ class BaseSequence(Sequence):
 		raise IndexError(f"{self.__class__.__name__} index out of range.")
 
 		
-@dataclass(frozen=True)
+@dataclass(frozen=True, order=True)
 class SequenceView(BaseSequence):
 	'''A view over a new sequence.'''
 	__slots__ = 'data'
@@ -282,7 +279,7 @@ class Ranged(BaseSequence):
 class indexed(Size, Ranged):
 	r:Sequence[int]
 
-	def __len__(self):
+	def __len__(self, /):
 		return len(self.r) if self.data else 0
 	
 	def iterfunc(reverse, /):
@@ -390,7 +387,7 @@ class chain(SequenceView):
 
 	__len__ = sum
 
-	__bool__ = databool[0]
+	__bool__ = datamethod(all)
 
 	def __init__(self, /, *sequences):
 		self.data = sequences
@@ -483,7 +480,7 @@ class chain(SequenceView):
 	
 	@classmethod
 	def fromsequence(cls, data:Sequence[Sequence], /):
-		(self := cls()).data = data
+		object.__setattr__(self := cls(), 'data', data)
 		return self
 
 
@@ -560,6 +557,12 @@ class mul(RelativeSized):
 			pass
 		self.IndexError()
 
+	def __len__(self, /):
+		return len(self.data) * self.times
+
+	def __contains__(self, value, /):
+		return True if self.times and (value in self.data) else False
+
 	def iterfunc(reverse, /):
 		r = MAP[2] if reverse else None
 		def __iter__(self, /):
@@ -568,12 +571,6 @@ class mul(RelativeSized):
 				value = r(value)
 			return from_iterable(value)
 		return __iter__
-
-	def __len__(self, /):
-		return len(self.data) * self.times
-
-	def __contains__(self, value, /):
-		return True if self.times and (value in self.data) else False
 
 	def count(self, value, /) -> int:
 		return (r := self.times) and self.data.count(value) * r
@@ -743,7 +740,8 @@ class Zip(SubSequence):
 		self.data = sequences
 		self.strict = strict
 
-	__bool__ = databool[1]
+	def __bool__(self, /):
+		return True if (data := self.data) and all(data) else False
 
 	__len__ = min
 
@@ -839,7 +837,8 @@ class zip_longest(Zip):
 		self.data = sequences
 		self.fillvalue = fillvalue
 
-	__bool__ = databool[0]
+	def __bool__(self, /):
+		return True if (data := self.data) and any(data) else False
 
 	__len__ = max
 
@@ -934,7 +933,7 @@ class Product(combinations):
 	'''Same as it.product but acts as a sequence.'''
 	data:tuple[Sequence]
 
-	__bool__ = databool[1]
+	__bool__ = datamethod(all)
 
 	def __mul__(self, r, /):
 		return type(self)(self.data, self.r * r)
