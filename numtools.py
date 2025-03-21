@@ -1,7 +1,6 @@
 import operator as op, re
 
 from numbers import Number
-from typing import Optional
 from types import MethodType
 from bitarray import bitarray
 from math import trunc, isqrt, ceil
@@ -68,13 +67,9 @@ def sieve(x:int, /) -> Iterator[int]:
     return _cc2(data)
 
 
-try:
-    from _lib import gauss_sum
-
-except ImportError:
-    def gauss_sum(n:int, /) -> int:
-        '''Sum of all numbers from start to stop.'''
-        return n * (n + 1) // 2
+def gauss_sum(n:Number, /) -> Number:
+    '''Sum of all numbers from start to stop.'''
+    return n * (n + 1) // 2
 
 
 def collatz(x:Number, /) -> Generator[Number]:

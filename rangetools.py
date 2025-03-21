@@ -194,7 +194,8 @@ def intersection(*args):
 def variance_func(func, /):
     def function(x:range, /):
         if self:
-            return func(self.step, (((n := len(self)) **2) - 1) / n)
+            n = len(self)
+            return func(self.step, ((n * n) - 1) / n)
         else:
             return math.nan
     return function
@@ -206,4 +207,4 @@ def std(d, n, /):
 
 @variance_func
 def var(d, n, /):
-    return (d**2 / 12) * n
+    return ((d * d) / 12) * n
