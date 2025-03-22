@@ -1,6 +1,7 @@
 '''The following module describes efficients and simple tools for caching.
 All this tools are usefull only for functions that only holds'''
 
+from typing import Any
 from types import SimpleNamespace
 from itertools import islice, count
 from functools import update_wrapper
@@ -14,11 +15,25 @@ class Cache(defaultdict):
 	__call__ = dict.__getitem__
 
 	def __missing__(self, key, /):
-		self[key] = key = self.default_factory(key)
-		return key
+		self[key] = value = self.default_factory(key)
+		return value
+
+	def __getattr__(self, attr, /):
+		return getattr(self.default_factory, attr)
 
 del defaultdict
 
+
+class StarCache(Cache, dict[tuple, Any]):
+	__slots__ = ()
+
+	def __call__(self, *args, /):
+		return self[args]
+
+	def __missing__(self, args, /):
+		self[args] = value = self.default_factory(*args)
+		return value
+		
 
 class cached_property:
 
@@ -89,3 +104,5 @@ def enumcache(func, data, size, /):
 	else:
 		start = len(data)
 	return data, map(func, _getcounter(start, size))
+
+del Any
