@@ -1,6 +1,5 @@
 from collections.abc import Callable
-from types import (MethodType as Bounder, SimpleNamespace as bounders,
-	FunctionType)
+from types import FunctionType
 from functools import wraps
 
 
@@ -34,7 +33,7 @@ def simple_compose(args, /) -> Callable:
 @composer
 def compose_n(args) -> Callable:
 	'''compose_n(func1, func2, func3..., x, doc=None)'''
-	*functions, x = args
+	*functions, x = kwargs
 	x = range(x)
 	def func(self, /):
 		for _ in x:

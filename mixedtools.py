@@ -4,6 +4,8 @@ from itertools import repeat
 from functools import partial
 from collections.abc import Callable
 
+loops = partializer(repeat, None)
+
 partializer = partializer(partializer, partializer)
 
 
