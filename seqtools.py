@@ -1,14 +1,11 @@
 '''This library is directly inspired by itertools, as the idea of conceiving a library
 for dealing with seqtools in a more efficient way.'''
-from __future__ import annotations
-
 import itertools as it, math, operator as op
 
 
 from typing import Any
 from sys import maxsize
 from numbers import Number
-from types import MethodType
 from more_itertools import locate
 from functools import wraps, update_wrapper as wrap
 from collections import deque, UserDict, UserList, Counter

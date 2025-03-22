@@ -4,12 +4,11 @@ from itertools import repeat
 from functools import partial
 from collections.abc import Callable
 
-loops = partializer(repeat, None)
 
 partializer = partializer(partializer, partializer)
 
 
-def revert_args(func, /):
+def revert_args(func:Callable, /) -> Callable:
 	return lambda *args: func(args[::-1])
 
 
