@@ -9,6 +9,7 @@ from collections import defaultdict
 
 obj_setattr = object.__setattr__
 
+
 class Cache(defaultdict):
 	'''Defaultdict that pass missing key to default_factory as an argument.'''
 	__slots__ = ()

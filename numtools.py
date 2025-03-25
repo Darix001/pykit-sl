@@ -1,7 +1,6 @@
 import operator as op, re
 
 from numbers import Number
-from types import MethodType
 from bitarray import bitarray
 from math import trunc, isqrt, ceil
 from itertools import count, compress, islice
@@ -18,17 +17,6 @@ operator_funcs = {
      '>':op.gt, '>=':op.ge, '<':op.lt, '<=':op.le, '==':op.eq, '!=':op.ne,
     }
 re = re.compile(r'[-+]?(?:\d*\.*\d+)')
-
-
-def partialop(symbol:str, value:Number, /) -> Callable:
-    '''Partialize an operator function'''
-    return MethodType(operator_funcs[symbol], value)
-
-
-def rpartialop(symbol:str, value:Number):
-    '''Partialize the second argument of an operator function'''
-    func = operator_funcs[symbol]
-    return lambda x, /: func(x, value)
 
 
 def eval(string:str, /, dtype:Callable = int, start:int = 0) -> Number:

@@ -1,7 +1,9 @@
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Iterator
 from operator import methodcaller, getitem
 from itertools import accumulate, repeat
 from array import array
+
+STRITER = Iterator[str]
 
 class array(array):
     '''Array subclass allows to call the from unicode method using the lshift
@@ -27,7 +29,8 @@ class LiteralAttr:
         return attr
 
 
-def pyram(string, r:int, /, fillchar=' ', *, reverse:bool=False) -> Generator[str]:
+def pyram(string:str, r:int, /, fillchar:str=' ', *, increase=1,
+    reverse:bool=False) -> STRITER:
     '''Generator of the lines of a pyram composed by the given string.
     string = the string that will make the pyram
     r = the number of rows of the pyram
@@ -48,22 +51,28 @@ def pyram(string, r:int, /, fillchar=' ', *, reverse:bool=False) -> Generator[st
      ***  
       *   
     '''
-    x = ((r * 2) - 1)
+    step = increase * 2
+    x = (r * step) - (((increase - 1) * 2) + 1)
     n = len(string)
     
     if reverse:
-        func, item = getitem, slice(-(n * 2))
+        func, item = getitem, slice(-(n * step))
         string *= x
     
     else:
-        func, item = None, string * 2
+        func, item = None, string * step
     
     return map(methodcaller('center', x * n, fillchar),
         accumulate(repeat(item, r - 1), func, initial=string))
 
 
-def square(string, n:int, /):
+def square(string:str, n:int, /) -> STRITER:
     '''Generator of the lines of a square composed by the given string'''
     return repeat(string * n, n)
 
-del Callable, Generator
+
+def stairs(string:str, r:int, /, *, increase=1, reverse=False):
+    ...
+
+
+del Callable, Iterator, STRITER
