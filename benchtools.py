@@ -5,14 +5,14 @@ from collections.abc import Callable
 from more_itertools import repeatfunc
 
 
-fastest = partial(min, key=Timer.timeit)
+fastest_timer = partial(min, key=Timer.timeit)
 
 fastestfunc = partial(min, key=timeit)
 
 
 def ibenchsort(*funcs, runs:int=100) -> dict[Callable, int]:
 	'''Benchsort the functions every "runs" times'''
-	data = Counter(repeatfunc(fastesttimer, runs, *map(Timer, funcs)))
+	data = Counter(repeatfunc(fastest_timer, runs, *map(Timer, funcs)))
 	return {timer.inner.__defaults__[0]:n for timer,n in data.most_common()}
 
 	
