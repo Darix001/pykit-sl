@@ -1,15 +1,14 @@
 '''This library is directly inspired by itertools, as the idea of conceiving a library
 for dealing with seqtools in a more efficient way.'''
+
 import itertools as it, math, operator as op
 
-
 from typing import Any
-from sys import maxsize
 from numbers import Number
 from more_itertools import locate
-from functools import wraps, update_wrapper as wrap
 from collections import deque, UserDict, UserList, Counter
 from dataclasses import dataclass, replace, make_dataclass
+from functools import wraps, update_wrapper as wrap, partial
 
 from collections.abc import Sequence, Callable, Iterator, Iterable, Generator
 
@@ -20,16 +19,16 @@ from .composetools import bicompose
 div_index = {0, -1}.__contains__
 
 cycle = bicompose(from_iterable := it.chain.from_iterable,
-	irepeat := it.repeat)
+	repeat := it.repeat)
 
 mapper = partializer(map)
 
-frozen_dataclass = dataclass(frozen=True)
+frozen_dataclass = partial(dataclass, frozen=True)
 
+frozen_sloted_dataclass = partial(frozen_dataclass, slots=True)
 
-MAP = [it.repeat, from_iterable, reversed, it.islice,
-op.itemgetter(slice(None, None, -1)), op.getitem,
-op.floordiv, op.attrgetter('stop'), len, op.contains, op.countOf]
+MAP = [it.repeat, from_iterable, reversed, it.islice, op.getitem, op.floordiv,
+len, op.contains, op.countOf]
 
 MAP[:] = map(mapper, MAP)
 
@@ -38,7 +37,7 @@ del MAP[-2:]
 get_sizes = MAP.pop()
 
 
-R_NONE = irepeat(None)
+R_NONE = repeat(None)
 
 OPINT = int | None
 
@@ -46,9 +45,9 @@ ITII = Iterator[tuple[int, int]]
 
 TS = tuple[Sequence]
 
-NWISE_ITER = {1:zip, 2:it.pairwise}
+NS = Sequence[Sequence]
 
-MAXSIZE_RANGE = range(maxsize)
+NWISE_ITER = {1:zip, 2:it.pairwise}
 
 SENTINEL = object()
 
@@ -74,7 +73,7 @@ def efficient_nwise(iterable:Iterable, n:int) -> Generator[deque]:
 
 def getitems(data:Sequence, items, /) -> Iterator:
 	'''fetchs and Yields each item of the data object.'''
-	return MAP[5](irepeat(data), items)
+	return MAP[4](repeat(data), items)
 
 
 def checker(cls, /):
@@ -91,20 +90,8 @@ def datamethod(func:Callable, /) -> Callable:
 	return lambda self,/: func(self.data)
 
 
-def zipbool(func:Callable, /) -> Callable:
-	return lambda self,/: True if (data := self.data) and func(data) else False
-
-
 def calcsize(func:Callable, /) -> Callable:
 	return lambda self, /: func(get_sizes(self.data))
-
-
-def comb_len(cls, /) -> type:
-	'''Decorator for combinations and permutation classes that computes their get_sizes based
-	on their respective math function.'''
-	func = getattr(math, cls.__name__[:4])
-	cls.__len__ = lambda self, /: func(len(self.data), self.r)
-	return cls
 
 
 def efficient_slice(data:Sequence, slicer:slice):
@@ -169,17 +156,30 @@ class BaseSequence(Sequence):
 		raise IndexError(f"{type(self).__name__} index out of range.")
 
 		
-@dataclass(frozen=True, order=True)
+@frozen_dataclass(order=True)
 class SequenceView(BaseSequence):
 	'''A view over a new sequence.'''
-	__slots__ = 'data'
 	data:Sequence
-	
+
+	__slots__ = 'data'
+
 	index, count = UserList.index, UserList.count
 	
+	__class_getitem__ = UserDict.__class_getitem__
+
 	__len__, __contains__ = UserList.__len__, UserList.__contains__
 	
 	__iter__ = UserDict.__iter__
+		
+	__reversed__, __bool__ = datamethod(reversed), datamethod(bool)
+
+	def __init__(self, data:Sequence, /):
+		if type(self) is type(data):
+			data = data.data
+		self._setattr('data', data)
+
+	def __repr__(self, /):
+		return f"{type(self).__name__}({self.data!r})"
 	
 	def __getitem__(self, index, /):
 		data = self.data
@@ -193,11 +193,6 @@ class SequenceView(BaseSequence):
 		else:
 			return data[index]
 
-		
-	__reversed__ = datamethod(reversed)
-
-	__bool__ = datamethod(bool)
-
 	def __mul__(self, n, /):
 		return mul(self.data, n)
 
@@ -205,7 +200,14 @@ class SequenceView(BaseSequence):
 class ReverseView(SequenceView):
 	'''Reversed View of a sequence data'''
 	__slots__ = ()
+	
 	__reversed__, __iter__ = SequenceView.__iter__, SequenceView.__reversed__
+
+	def __new__(cls, data:Sequence, /):
+		if isinstance(data, cls):
+			return SequenceView(data.data)
+		else:
+			return super().__new__(cls)
 
 	def __getitem__(self, index, /):
 		data = self.data
@@ -379,7 +381,7 @@ class Slice(Indexed):
 		return self.data[(r := self.r).start:r.stop:r.step]
 
 
-class chain(SequenceView):
+class Chain(SequenceView):
 	'''Same as it.chain but as a sequence.'''
 	__slots__ = ()
 	data:TS
@@ -389,7 +391,11 @@ class chain(SequenceView):
 	__bool__ = datamethod(any)
 
 	def __init__(self, /, *sequences):
-		super().__init__(*sequences)
+		sequences = [*sequence]
+		for i, value in enumerate(sequences):
+			if isinstance(value, Chain):
+				sequence[i:i+1] = value.data
+		self._setattr('data', tuple(sequences))
 
 	def __getitem__(self, index, /):
 		data = self.data
@@ -442,7 +448,7 @@ class chain(SequenceView):
 		return NotImplemented
 
 	def cc_func(func, fmap, /):#Count and Contains Function decorator
-		return lambda self, obj, / : func(fmap(self.data, irepeat(obj)))
+		return lambda self, obj, / : func(fmap(self.data, repeat(obj)))
 
 	__contains__, count = map(cc_func, (any, sum), CC_MAP)
 
@@ -478,7 +484,7 @@ class chain(SequenceView):
 		self.value_error(value)
 	
 	@classmethod
-	def fromsequence(cls, data:Sequence[Sequence], /):
+	def fromsequence(cls, data:NS, /):
 		(self := cls())._setattr('data', data)
 		return self
 
@@ -499,7 +505,7 @@ class Repeat(Ranged):
 		return self.r.stop
 	
 	def __iter__(self, /):
-		return irepeat(self.value, self.r.stop)
+		return repeat(self.value, self.r.stop)
 
 	__reversed__ = __iter__
 	def __contains__(self, obj, /):
@@ -537,6 +543,15 @@ RelativeSized = make_dataclass('RelativeSized', (('r', int),),
 class mul(RelativeSized):
 	'''Emulates a data sequence multiplied r times.'''
 	__slots__ = ()
+
+	def __init__(self, data:Sequence, r:int, /):
+		if type(self) is type(data):
+			r *= data.r
+			data = data.data
+		return super().__init__(data, r)
+
+	def __repr__(self, /):
+		return f"{type(self).__name__}({self.data!r}, {self.r!r})"
 
 	def __mul__(self, r, /):
 		return self.__replace(r=self.r * r)
@@ -605,7 +620,7 @@ class Repeats(mul):
 			data = self.data
 			if reverse:
 				data = reversed(data)
-			return from_iterable(MAP[0](data, irepeat(self.r)))
+			return from_iterable(MAP[0](data, repeat(self.r)))
 		return __iter__
 
 	def index(self, value, start=0, stop:OPINT=None, /) -> int:
@@ -650,10 +665,11 @@ class Zip(SubSequence):
 	data:TS
 
 	def __init__(self, /, *sequences:TS, strict:bool=False):
-		super().__init__(sequence)
+		self._setattr('data', sequence)
 		self._setattr('_kwval', strict)
 
-	__bool__ = zipbool(all)
+	def __bool__(self, /):
+		return True if (data := self.data) and all(data) else False
 
 	__len__ = calcsize(min)
 
@@ -673,7 +689,7 @@ class Zip(SubSequence):
 	def __iter__(self, /):
 		return zip(*self.data, strict=self._kwval)
 
-	def __reversed__(self, revmap=MAP[2], /):
+	def __reversed__(self, /):
 		return zip(*self._reversegen(self._levels(), self._kwval))
 
 	@staticmethod
@@ -707,7 +723,7 @@ class Zip(SubSequence):
 
 	def _levels(self, /) -> tuple[Sequence, ITII]:
 		data = self.data
-		n = irepeat(len(self))
+		n = repeat(len(self))
 		return zip(data, map(abs, map(op.sub, n, get_sizes(data))))
 
 	def _index(self, values, start, stop, /):
@@ -734,15 +750,21 @@ class Zip(SubSequence):
 		
 		self.value_error(values)
 
+	
+	@classmethod
+	def unzip(cls, data:NS, strict:bool=False):
+		(new := cls(strict=strict))._setattr('data', data)
+		return new
 
-class zip_longest(Zip):
+
+class Zip_longest(Zip):
 	'''Same as it.zip_longest but as a sequence.'''
 	__slots__ = ()
 
-	def __init__(self, /, *sequences:TS, fillvalue=None):
+	def __init__(self, /, *sequences:TS, fillvalue:Any=None):
 		super().__init__(sequences, strict=fillvalue)
 
-	__bool__ = zipbool(any)
+	__bool__ = Chain.__bool__
 
 	__len__ = calcsize(max)
 
@@ -761,11 +783,16 @@ class zip_longest(Zip):
 		for data, level in levels:
 			data = reversed(data)
 			if level:
-				data = it.chain(irepeat(default, start), data)
+				data = it.chain(repeat(default, start), data)
 			yield data
 
+	@classmethod
+	def unzip(cls, data:NS, fillvalue:Any=None):
+		(new := cls(fillvalue=fillvalue))._setattr('data', data)
+		return new
 
-class combinations(SubSequence, RelativeSized):
+
+class Combinations(SubSequence, RelativeSized):
 	'''Base Class for combinatoric sequences. A combinations subclass is a type
 	of sequence that returns r-length sucessive tuples of different combinations
 	of all elements in data.'''
@@ -775,7 +802,7 @@ class combinations(SubSequence, RelativeSized):
 		return not (r := self.r) or len(self.data) >= r
 
 
-class nwise(combinations):
+class Nwise(Combinations):
 	'''Emulates tuples of every r elements of data.'''
 
 	def __getitem__(self, index, /):
@@ -789,7 +816,7 @@ class nwise(combinations):
 				first = reversed(first)
 
 			if not (r := self.r):
-				return irepeat((), len(data))
+				return repeat((), len(data))
 
 			elif r < 3:
 				return NWISE_ITER[r](first)
@@ -802,7 +829,7 @@ class nwise(combinations):
 						limit = it.islice
 					else:
 						limit = islice
-						args = map(limit, irepeat(data), r, R_NONE)
+						args = map(limit, repeat(data), r, R_NONE)
 					return zip(first, *args)
 		return __iter__
 
@@ -815,7 +842,7 @@ class nwise(combinations):
 	def _contains(func, /):
 		def function(self, value, /):
 			data = efficient_nwise(self.data, self.r)
-			value = irepeat(deque(value))
+			value = repeat(deque(value))
 			return func(map(op.eq, data, value))
 		return function
 
@@ -829,7 +856,7 @@ class nwise(combinations):
 		return next(filter(None, stream), None)
 
 
-class Product(combinations):
+class Product(Combinations):
 	'''Same as it.product but acts as a sequence.'''
 	__slots__ = ()
 	data:TS
@@ -841,7 +868,8 @@ class Product(combinations):
 		string = f"{type(self).__name__!r}{self.data!r}".removesuffix(')')
 		return f'{string}, repeat={self.r!r})'
 
-	__bool__ = datamethod(all)
+	def __bool__(self, /):
+		return all(data) if (data := self.data) else True
 
 	def __mul__(self, r, /):
 		return type(self)(*self.data, repeat=self.r * r)
@@ -902,7 +930,7 @@ class Product(combinations):
 		size = [*get_sizes(data := self.data)]
 		size *= (repeat := self.r)
 		*count, n = it.accumulate(size, op.mul, initial=1)
-		times = [*floordiv(floordiv(irepeat(n), size), count)]
+		times = [*floordiv(floordiv(repeat(n), size), count)]
 		return data * repeat, size, count, times, n
 
 	del r
@@ -913,9 +941,14 @@ class Product(combinations):
 
 	_contains, _count = map(_contains, (all, math.prod), CC_MAP)
 
+	@classmethod
+	def fromsequence(cls, data:NS, repeat=1):
+		(new := cls(repeat=repeat))._setattr('data', data)
+		return new
 
-@frozen_dataclass
-class enumerated(SubSequence):
+
+@frozen_sloted_dataclass
+class Enumerated(SubSequence):
 	"""Same as builtins.enumerate but as a sequence."""
 	start:int=0
 
@@ -962,7 +995,7 @@ class enumerated(SubSequence):
 		return value is not SENTINEL and value == obj
 
 
-@dataclass(frozen=True, slots=True)
+@frozen_sloted_dataclass
 class Progression(Ranged):
 	'''Emulates an Arithmetic Progression:
 	r = Arange indicating the indices of the progression.
@@ -983,7 +1016,7 @@ class Progression(Ranged):
 	del rfunc
 
 	def _getslice(self, r, /):
-		OSETATTR(new := type(self)(self.a1, self.d, n=0), 'r', r)
+		(new := type(self)(self)._setattr(1, self.d, n=0), 'r', r)
 		return new
 
 	def _getitem(self, index:int, /):
@@ -1008,17 +1041,20 @@ class Progression(Ranged):
 	def last(self, /) -> Number:
 		return self._getitem(self.r[-1])
 
-
 	def iterfunc(reverse, /):
 		def __iter__(self, /):
 			step = (r := self.r).step
 			if reverse:
 				start = self.last
 				step = -step
+
 			else:
 				start = self.start
+			
 			return it.islice(it.count(start, self.step * step), len(r))
+		
 		return __iter__
+
 
 	def count(self, number:Number, /) -> int:
 		return self.r.count(self._getindex(number))
@@ -1026,7 +1062,7 @@ class Progression(Ranged):
 	def index(self, number:Number, /) -> int:
 		return self.r.index(self._getindex(number))
 
-	
+
 	@classmethod
 	@slicer
 	def fromrange(cls, slicer, /):
@@ -1063,5 +1099,5 @@ class Progression(Ranged):
 		return cls(range(n), start, step)
 
 
-del (maxsize, ITII, UserDict, bicompose, UserList, partializer, OPINT, TS,
-	Iterator, Iterable, Generator, Callable, Sequence)
+del (UserDict, UserList, bicompose, partializer, partial, OPINT, TS, NS, ITII,
+	Iterator, Iterable, Generator, Callable, Sequence, dataclass)
