@@ -62,4 +62,8 @@ def pyram(string, r:int, /, fillchar=' ', *, reverse:bool=False) -> Generator[st
         accumulate(repeat(item, r - 1), func, initial=string))
 
 
+def square(string, n:int, /):
+    '''Generator of the lines of a square composed by the given string'''
+    return repeat(string * n, n)
+
 del Callable, Generator
