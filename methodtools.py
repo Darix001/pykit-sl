@@ -114,16 +114,6 @@ class set_name(unassigned_method):
 		setattr(cls, name, self.func(name))
 		
 
-compare_method = op_method(COMPARE)
-
-binary_method = op_method(BINARY)
-
-inplace_method = op_method(INPLACE)
-
-unary_method = op_method(UNARY)
-
-
-
 getinitcode = attrgetter('__init__.__code__')
 
 inits = dict(
@@ -289,5 +279,5 @@ builtin_method = dunder_method(builtins, strip=True)
 # # 	data['__slots__'] = fields
 
 
-del builtins, UserList, Repr, Any, MappingView, Callable, Mapping, Iterable,
-	attrgetter, operator
+del (builtins, UserList, Repr, Any, MappingView, Callable, Mapping, Iterable,
+	attrgetter, operator)

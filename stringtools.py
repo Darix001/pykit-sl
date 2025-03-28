@@ -5,6 +5,7 @@ from array import array
 
 STRITER = Iterator[str]
 
+
 class array(array):
     '''Array subclass allows to call the from unicode method using the lshift
     (<<) operator. Example:
@@ -29,7 +30,7 @@ class LiteralAttr:
         return attr
 
 
-def pyram(string:str, r:int, /, fillchar:str=' ', *, increase=1,
+def pyram(string:str, r:int, /, fillchar:str=' ', increase=1, *,
     reverse:bool=False) -> STRITER:
     '''Generator of the lines of a pyram composed by the given string.
     string = the string that will make the pyram
@@ -71,8 +72,48 @@ def square(string:str, n:int, /) -> STRITER:
     return repeat(string * n, n)
 
 
-def stairs(string:str, r:int, /, *, increase=1, reverse=False):
-    ...
+def stairs(string:str, r:int, /, fillchar:str=' ', increase=1, *,
+    reverse:bool=False) -> STRITER:
+    '''Generator of the lines of a stair composed by the given string.
+    string = the string that will make the stairs
+    r = the number of rows of the stairs
+    char = the char around the stairs, defulat an empty space
+
+    Example:
+    stairs
+
+    prints:
+    '\n'.join(stairs('*', 3))
+    *   
+    **  
+    *** 
+
+    if reverse is True, the stairs is returned in reverse order.
+    '\n'.join(stairs('*', 3, reverse=True))
+    *** 
+    **  
+    *   
+    '''
+    
+    if reverse:
+        inc = (n := len(string)) * increase
+        func, item = getitem, slice(-inc)
+        string *= (inc * (r - 1)) + n
+    
+    else:
+        func, item = None, string * increase
+    
+    return accumulate(repeat(item, r - 1), func, initial=string)
+
+
+def rreplace(string:str, oldsub:str, newsub:str, /, count=-1) -> str:
+    return newsub.join(string.rsplit(oldsub, count))
+
+
+def replacelast(string:str, oldsub:str, newsub:str, /) -> str:
+    first, mid, last = string.rpartition(oldsub)
+    return string if not mid else f"{first}{newsub}{last}"
+
 
 
 del Callable, Iterator, STRITER

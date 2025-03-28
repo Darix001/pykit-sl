@@ -862,10 +862,11 @@ class Product(Combinations):
 	data:TS
 
 	def __init__(self, /, *sequences, repeat=1):
-		super().__init__(sequence, repeat)
+		super().__init__(sequences, repeat)
 
 	def __repr__(self, /):
-		string = f"{type(self).__name__!r}{self.data!r}".removesuffix(')')
+		data_repr = f"{self.data!r}"
+		string = f"{type(self).__name__}{}".removesuffix(')')
 		return f'{string}, repeat={self.r!r})'
 
 	def __bool__(self, /):
@@ -945,6 +946,19 @@ class Product(Combinations):
 	def fromsequence(cls, data:NS, repeat=1):
 		(new := cls(repeat=repeat))._setattr('data', data)
 		return new
+
+
+class Permutations(Combinations):
+	__slots__ = ()
+	r:int|None
+
+	def __init__(self, /, data:Sequence, r:int|None=None):
+		if r is not None and r < 0:
+			raise ValueError("r must be non-negative")
+		super().__init__(data, r)
+	
+	def __len__(self, /):
+		return math.perm(len(self.data), self.r)
 
 
 @frozen_sloted_dataclass
@@ -1095,7 +1109,7 @@ class Progression(Ranged):
 	def create_with_size(cls, /, start:Number=0, step:Number=1, *, n):
 		'''Returns a Progression form start with step of size n'''
 		if n < 0:
-			raise ValueError("The size of the progression must be >= 0")
+			raise ValueError("size must be non-negative")
 		return cls(range(n), start, step)
 
 

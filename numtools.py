@@ -119,34 +119,4 @@ def factors(n:int, /) -> Generator[int]:
             yield i
             yield div
 
-
-def primefactors(n:Number, /) -> Generator[Number]:
-    while True:
-        div, mod = divmod(n, 2)
-        
-        if mod:
-            break
-        
-        yield 2
-        n = div
-         
-    # n must be odd at this point
-    # so a skip of 2 ( i = i + 2) can be used
-    for i in range(3, isqrt1(n), 2):
-         
-        while True:
-            div, mod = divmod(n, i)
-            
-            if mod:
-                break
-            
-            yield i
-            n = div
-             
-    # Condition if n is a prime
-    # number greater than 2
-    if n > 2:
-        yield n
-
-
 del Callable, Iterator, Generator

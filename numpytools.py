@@ -1,33 +1,53 @@
 from . import methodtools
-from dataclasses import dataclass, _replace
+
+from math import prod
+from typing import Any
+from operator import getitem
+from functools import wraps, reduce
+from more_itertools import repeatfunc
+from itertools import accumulate, groupby
+from dataclasses import dataclass, replace
+from collections.abc import Iterator, Iterable
 
 
-@dataclass
-class Full(BaseArray):
+obj_setattr = object.__setattr__
+
+
+@dataclass(frozen=True, slots=True)
+class Full:
 	_shape:list[int]
 	fill_value:Any
+	size:int
 	
 	base = None
 	_replace = replace
 
 	def __getitem__(self, index, /):
-		shape = [*self._shape]
-		if (index_type := type(index)) is tuple:
+		ranges = map(range, shape := self._shape)
+		shape = [*shape]
+		if isinstance(index, tuple):
 			if not index:
-				return self
+				return self.copy()
 			
-			if len(index) > len(shape):
+			elif len(index) > len(shape):
 				raise IndexError(
 					"too many indices for full: full is"
 					f"{ndim}-dimensional, but 2 were indexed")
 
 			else:
 				try:
+					axis = 0
 					indices = iter(index)
-					for axis, dim in enumerate(map(range, shape)):
-						for index in indices:
-							if type(index := dim[index]) is range:
-								shape[0] = len(dim)
+
+					for axis, a in enumerate(ranges):
+						a = accumulate(indices, getitem, initial=a)
+						next(a)
+						for k, it in groupby(a, type):
+							if k is range:
+								for i in it:
+									pass
+								shape[0] = len(i)
+					
 							else:
 								del shape[0]
 								break
@@ -37,10 +57,11 @@ class Full(BaseArray):
 						f"index {index} is out of bounds for axis"
 						f"{axis} with size {shape[0]}"
 						) from None
-		if index is not ...:
+		
+		elif index is not ...:
 			if shape := self._shape:
 				axis = 0
-				first_dim = range(shape[0])
+				first_dim = next(ranges)
 
 				try:
 					index = first_dim[index]
@@ -50,8 +71,8 @@ class Full(BaseArray):
 						f" 0 with size {shape[0]}."
 							) from None
 
-				if index_type is slice:
-					shape[0] = len(first)
+				if type(first_dim) is range:
+					shape[0] = len(index)
 
 				else:
 					axis = 1
@@ -64,19 +85,21 @@ class Full(BaseArray):
 					raise IndexError(
 						f"index {index} is out of bounds for axis 0 with size 0"
 						) from None
-			
-				'''Since we confirm that the index is slice and self is empty,
-				simply return self as ther is nothing to slice.'''
-		return self.copy()
+		
 
-		return self._getitem(axis, shape)
+		value = self.fill_value
+		return self.create(shape, value) if shape else value
 
 
 	@property
 	def T(self, /):
-		return self._replace(shape=self._shape[::-1])
+		return self._replace(_shape=self._shape[::-1])
 
-	ndims, shape = map(property, map(shape_method.with_func, (len, tuple)))
+	# ndims, shape = map(property, map(shape_method.with_func, (len, tuple)))
+	def shape_method(self, /):
+		return property(lambda self, /: func(self._shape))
+
+	ndims, shape = shape_method(len), shape_method(tuple)
 
 	def copy(self, /):
 		return self._replace(_shape=[*self._shape])
@@ -110,10 +133,11 @@ class Full(BaseArray):
 	def astype(self, dtype, /):
 		self._replace(fill_value=dtype(self.fill_value))
 
-	__abs__ = methodtools.unary_method(astype)
+	@methodtools.operator_method
+	def __abs__(func, /):
+		return lambda self, /: self._replace(fill_value=func(self.fill_value))
 
-	def _getitem(self, axis:int, shape:list[range], /):
-		return self._replace(_shape=shape) if shape else self.fill_value
+	__invert__ = __neg__ = __pos__ = __abs__
 
 	@property
 	def dtype(self, /) -> type:
@@ -123,16 +147,16 @@ class Full(BaseArray):
 	def flat(self, /) -> Iterator[Any]:
 		return irepeat(self.fill_value, self.size)
 		
-	imag = real = numerator = denominator = fill_value_property
+	# imag = real = numerator = denominator = fill_value_property
 
 	def conjugate(self, /):
 		return self._replace(fill_value=self.fill_value.conjugate())
 
 	def fill(self, value, /):
-		object.__setattr__(self, 'fill_value', value)
+		obj_setattr(self, 'fill_value', value)
 
 	def flatten(self, /):
-		return self._replace(shape=(self.size,))
+		return self._replace(_shape=[self.size])
 
 	ravel = flatten
 
@@ -142,6 +166,12 @@ class Full(BaseArray):
 		else:
 			pass
 
+	def tolist(self, /) -> list:
+		array = [self.fill_value] * next(shape := reversed(self._shape))
+		for n in shape:
+			array = [*repeatfunc(array.copy, n)]
+		return array
+			
 	def moveaxes(self, axis1, axis2, /):
 		shape = self._shape
 		shape[axis1], shape[axis2] = shape[axis2], shape[axis1]
@@ -165,13 +195,13 @@ class Full(BaseArray):
 		if self.size != (size := prod(shape)):
 			raise ValueError(
 				f"cannot reshape array of size {size} into shape {shape}")
-		return self._replace(shape=shape, size=size)
+		return self._replace(_shape=shape, size=size)
 
 	@reshape_func
 	def resize(self, shape):
 		_shape = self.shape
 		_shape[:] = shape
-		object.__setattr__(self, 'size', prod(_shape))
+		obj_setattr(self, 'size', prod(_shape))
 
 	del reshape_func
 
@@ -194,7 +224,7 @@ class Full(BaseArray):
 		else:
 			shape = [*shape]
 			shape[axis] *= times
-		return self._replace(shape=shape, size=size)
+		return self._replace(_shape=shape, size=size)
 
 	def math_method(func, /):
 		@wraps(func)
@@ -207,7 +237,7 @@ class Full(BaseArray):
 		if along_axis:
 			shape, size, axis = self.pop_axis(axis)
 			value **= axis
-			return self._replace(shape=shape, size=size, value=value)
+			return self._replace(_shape=shape, size=size, value=value)
 		else:
 			return value ** self.size
 
@@ -216,7 +246,7 @@ class Full(BaseArray):
 		if along_axis:
 			shape, size, axis = self.pop_axis(axis)
 			value *= axis
-			return self._replace(shape=shape, size=size, value=value)
+			return self._replace(_shape=shape, size=size, value=value)
 		else:
 			return self.size * value
 
@@ -241,7 +271,7 @@ class Full(BaseArray):
 			return value
 		else:
 			shape, size, axis = self.pop_axis(axis)
-			return self._replace(shape=shape, size=size, value=value)
+			return self._replace(_shape=shape, size=size, value=value)
 
 	def std(self, axis=None, /):
 		if shape := self.shape:
@@ -252,7 +282,7 @@ class Full(BaseArray):
 	var = std
 
 
-	@methodtools.set_name
+	@methodtools.multiname_method
 	def argmax(name, /):
 		msg = f"attempt to get {name} of an empty sequence"
 		def function(self, axis=None, ):
@@ -266,7 +296,7 @@ class Full(BaseArray):
 	argmin = argmax
 
 
-	@methodtools.set_name
+	@methodtools.multiname_method
 	def max(name, /):
 		msg = (f"Can't perform {name}imun reduction"
 			"operation on zero-size array")
@@ -295,3 +325,10 @@ class Full(BaseArray):
 		return function	
 	
 	all, any = map(boolean_method, (True, False))
+
+
+	@classmethod
+	def create(cls, /, shape:Iterable[int], fill_value:Any):
+		if (size := prod(shape := [*shape])) < 0:
+			raise ValueError("Negative Dimensions are not allowed.")
+		return cls(shape, fill_value, size)
