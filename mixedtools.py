@@ -16,9 +16,13 @@ def constfunc(value:Any, /) -> Callable:
 	return repeat(value).__next__
 
 
-class partialiter(partial):
+class partialt(partial):
 	__slots__ = ()
-	__iter__ = partial.__call__
+
+	@classmethod
+	def add_method_call(cls, name:str, /):
+		setattr(cls, name, cls.__call__)
+
 
 
 del Callable, Any, partial

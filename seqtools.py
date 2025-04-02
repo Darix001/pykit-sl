@@ -52,6 +52,12 @@ NWISE_ITER = {1:zip, 2:it.pairwise}
 SENTINEL = object()
 
 
+def swap(data:Sequence, indices:Iterable[int]):
+	values = op.itemgetter(*indices)(data)
+	for index, value in zip(indices, reversed(values)):
+		data[index] = value
+
+
 def slicer(func:Callable, /) -> Callable:
 	'''Decorator for functions wich accepts one argument and range arguments'''
 	def function(obj, /, *args):
@@ -107,7 +113,7 @@ def efficient_slice(data:Sequence, slicer:slice):
 				return ReverseView(data)
 
 	return efficient_slice(data, range(len(data))[slicer])
-		
+
 
 islice = slicer(efficient_slice)
 
@@ -153,7 +159,7 @@ class BaseSequence(Sequence):
 		raise ValueError(f"{value!r} not in {type(self).__name__}")
 
 	def index_error(self, /):
-		raise IndexError(f"{type(self).__name__} index out of range.")
+		raise IndexError(f"{type(self).__name__} object index out of range.")
 
 		
 @frozen_dataclass(order=True)
@@ -174,7 +180,7 @@ class SequenceView(BaseSequence):
 	__reversed__, __bool__ = datamethod(reversed), datamethod(bool)
 
 	def __init__(self, data:Sequence, /):
-		if type(self) is type(data):
+		if type(data) is SequenceView:
 			data = data.data
 		self._setattr('data', data)
 
@@ -865,9 +871,10 @@ class Product(Combinations):
 		super().__init__(sequences, repeat)
 
 	def __repr__(self, /):
-		data_repr = f"{self.data!r}"
-		string = f"{type(self).__name__}{}".removesuffix(')')
-		return f'{string}, repeat={self.r!r})'
+		return (f"{type(self).__name__}({', '.join(map(repr, self.data))}"
+			f', repeat={self.r!r})'
+			)
+		return 
 
 	def __bool__(self, /):
 		return all(data) if (data := self.data) else True

@@ -1,10 +1,11 @@
-import operator as op, re
+import operator as op
 
 from numbers import Number
 from bitarray import bitarray
-from math import trunc, isqrt, ceil
+from math import log10, isqrt, ceil
+from re import compile as recompile
 from itertools import count, compress, islice
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import Callable, Generator, Iterator, Sequence
 
 
 bitarray = bitarray('1')
@@ -16,7 +17,7 @@ operator_funcs = {
     
      '>':op.gt, '>=':op.ge, '<':op.lt, '<=':op.le, '==':op.eq, '!=':op.ne,
     }
-re = re.compile(r'[-+]?(?:\d*\.*\d+)')
+re = recompile(r'[-+]?(?:\d*\.*\d+)')
 
 
 def eval(string:str, /, dtype:Callable = int, start:int = 0) -> Number:
@@ -70,19 +71,39 @@ def collatz(x:Number, /) -> Generator[Number]:
             break
 
 
-def ndigits(x:int, /) -> int:
-    '''Calculates len(str(x))'''
-    i = trunc(0.30102999566398114 * (x.bit_length() - 1)) + 1
-    return (10 ** i <= abs(x)) + i
+class Digits(Sequence):
+    __slots__ = '_x'
 
+    def __new__(cls, x:int, /):
+        if not x:
+            return (1,)
+        else:
+            self = super().__new__(cls)
+            self._x = abs(x)
+            return self
+    
+    def __repr__(self, /):
+        return f"{type(self).__name__}({self._x!r})"
 
-def digits(x:int, /) -> int:
-    '''Sum of all x's digits.'''
-    while x:
-        x, mod = divmod(x, 10)
-        yield mod
+    def __len__(self, /):
+        return ceil(log10(self._x))
 
+    def __bool__(self, /):
+        return True
 
+    def __iter__(self, /) -> Generator[int]:
+        x = self._x
+        while x:
+            x, mod = divmod(x, 10)
+            yield mod
+
+    def __getitem__(self, index, /):
+        if div := self._x // (10 ** index):
+            return div % 10
+        else:
+            raise IndexError("Digit object Index out of range.")
+
+        
 def nbytes(x:int, /) -> int:
     '''The amount of space in bytes that the integer would occupe.'''
     return ceil(x.bit_length() / 8)
@@ -119,4 +140,6 @@ def factors(n:int, /) -> Generator[int]:
             yield i
             yield div
 
-del Callable, Iterator, Generator
+print((Digits(123456)))
+
+del Callable, Iterator, Generator, Sequence, recompile

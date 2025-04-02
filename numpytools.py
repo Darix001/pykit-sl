@@ -2,65 +2,113 @@ from . import methodtools
 
 from math import prod
 from typing import Any
-from operator import getitem
-from functools import wraps, reduce
+from functools import wraps
+from collections import UserList
 from more_itertools import repeatfunc
-from itertools import accumulate, groupby
 from dataclasses import dataclass, replace
 from collections.abc import Iterator, Iterable
+from operator import getitem, index, methodcaller
+from itertools import accumulate, groupby, repeat
 
 
-obj_setattr = object.__setattr__
-
-
-@dataclass(frozen=True, slots=True)
-class Full:
-	_shape:list[int]
-	fill_value:Any
+class Shape(UserList):
+	__slots__ = 'size'
 	size:int
+	
+	def __init__(self, data:Iterable[int], /):
+		if type(data) is type(self):
+			self.data = [*data.data]
+			self.size = data.size
+		
+		else:
+			self.setsize(data := [*data])
+			self.data = data
+
+	def __setitem__(self, index, value, /):
+		data = self.data
+		if value:
+			if value < 0:
+				raise ValueError("Negative Dimensions are not allowed")
+			
+			elif size := self.size:
+				self.size = (size // data[index]) * value
+			
+			else:
+				data[index] = value
+				self.setsize()
+				return
+		else:
+			self.size = 0
+		
+		data[index] = value
+
+
+	def __delitem__(self, index, /):
+		data = self.data
+		if value := data.pop(index):
+			self.size //= value
+		else:
+			self.setsize(data)
+
+	def setsize(self, data:Iterable[int], /):
+		self.size = +all(data) and prod(data)
+
+	def pop(self, index=-1, /):
+		if value := (data := self.data).pop(index):
+			if size := self.size:
+				self.size = size // value
+		else:
+			self.setsize(data)
+		return value
+
+	def append(self, value:int, /):
+		self.data.append(value)
+		self.size *= value
+
+
+@dataclass(frozen=True)
+class Full:
+	_shape:Shape[int]
+	fill_value:Any
+
+	__slots__ = ('_shape', 'fill_value')
 	
 	base = None
 	_replace = replace
+	_setattr = object.__setattr__
+
+	def __init__(self, /, shape:Iterable[int], fillvalue:Any):
+		_setattr = self._setattr
+		_setattr('shape', Shape(shape))
+		_setattr('fill_value', fill_value)
 
 	def __getitem__(self, index, /):
-		ranges = map(range, shape := self._shape)
-		shape = [*shape]
+		ranges = map(range, shape := self._shape.data)
+		shape = shape.copy()
 		if isinstance(index, tuple):
 			if not index:
-				return self.copy()
+				return self._replace(_shape=shape)
 			
-			elif len(index) > len(shape):
-				raise IndexError(
-					"too many indices for full: full is"
-					f"{ndim}-dimensional, but 2 were indexed")
+			try:
+				index = iter(index)
 
-			else:
-				try:
-					axis = 0
-					indices = iter(index)
-
-					for axis, a in enumerate(ranges):
-						a = accumulate(indices, getitem, initial=a)
-						next(a)
-						for k, it in groupby(a, type):
-							if k is range:
-								for i in it:
-									pass
-								shape[0] = len(i)
-					
-							else:
-								del shape[0]
-								break
-
-				except IndexError as e:
-					raise TypeError(
-						f"index {index} is out of bounds for axis"
-						f"{axis} with size {shape[0]}"
-						) from None
-		
+				for axis, a in enumerate(ranges):
+					for i in index:
+						if type(i) is slice:
+							shape[0] = len(a[i])
+						
+						else:
+							a[i]
+							del shape[0]
+			
+			except IndexError as e:
+				raise TypeError(
+					f"index {index} is out of bounds for axis"
+					f"{axis} with size {shape[0]}"
+					) from None
+	
 		elif index is not ...:
-			if shape := self._shape:
-				axis = 0
+			if shape:
 				first_dim = next(ranges)
 
 				try:
@@ -75,7 +123,6 @@ class Full:
 					shape[0] = len(index)
 
 				else:
-					axis = 1
 					del shape[0]
 
 			else:
@@ -88,56 +135,52 @@ class Full:
 		
 
 		value = self.fill_value
-		return self.create(shape, value) if shape else value
+		if shape:
+			return type(self)(shape, value) if shape else value
 
-
-	@property
-	def T(self, /):
-		return self._replace(_shape=self._shape[::-1])
 
 	# ndims, shape = map(property, map(shape_method.with_func, (len, tuple)))
 	def shape_method(self, /):
-		return property(lambda self, /: func(self._shape))
+		return property(lambda self, /: func(self._shape.data))
 
 	ndims, shape = shape_method(len), shape_method(tuple)
 
 	def copy(self, /):
-		return self._replace(_shape=[*self._shape])
+		return type(self)(self._shape, self.fill_value)
 
-	def pop_axis(self, axis:int, /) -> tuple[list[range], int,]:
-		shape = [*self._shape]
-		size //= (axis := shape.pop(axis))
-		return shape, size, axis
+	def pop_axis(self, axis:int, /):
+		return (new := self.copy()), new._shape.pop(axis)
 
 	def __array__(self, /):
 		from numpy import full
-		return numpy.full(self._shape, self.fill_value)
+		return full(self._shape, self.fill_value)
 
 	def __iter__(self, /):
-		if not (shape := self._shape):
+		if not self._shape:
 			return EMPTY_ITERATOR
-
-		repeater = repeat(self.fill_value, shape[0])
-
-		if len(shape) == 1:
-			return repeater
-
 		else:
-			return map(type(self), repeat(shape[1:]), repeater)
+			new, times = self.pop_axis(0)
+			if not new.shape:
+				return repeat(self.fill_value, times)
+			else:
+				return repeatfunc(new.copy, times)
 
 	__reversed__ = __iter__
 
 	def __round__(self, decimal_places=None, /):
-		self._replace(fill_value=round(self.fill_value, decimal_places))
+		return self._replace(fill_value=round(self.fill_value, decimal_places))
+
 
 	def astype(self, dtype, /):
-		self._replace(fill_value=dtype(self.fill_value))
+		return type(self)(self._shape, dtype(self.fill_value))
 
-	@methodtools.operator_method
-	def __abs__(func, /):
-		return lambda self, /: self._replace(fill_value=func(self.fill_value))
+	def fill_value_method(func, /):
+		return lambda self, /: type(self)(self._shape, func(self.fill_value))
 
-	__invert__ = __neg__ = __pos__ = __abs__
+	__invert__ = __neg__ = __pos__ = __abs__ = methodtools.operator_method(
+		fill_value_method)
+
+	conjugate = fill_value_method(methodcaller('conjugate'))
 
 	@property
 	def dtype(self, /) -> type:
@@ -145,40 +188,38 @@ class Full:
 
 	@property
 	def flat(self, /) -> Iterator[Any]:
-		return irepeat(self.fill_value, self.size)
+		return irepeat(self.fill_value, self._shape.size)
+
+	def transpose(self, /):
+		new = self.copy()
+		new._shape.data.reverse()
+		return new
+
+	T = property(transpose)
 		
 	# imag = real = numerator = denominator = fill_value_property
 
-	def conjugate(self, /):
-		return self._replace(fill_value=self.fill_value.conjugate())
-
-	def fill(self, value, /):
-		obj_setattr(self, 'fill_value', value)
+	def fill(self, value:Any, /):
+		self._setattr('fill_value', value)
 
 	def flatten(self, /):
-		return self._replace(_shape=[self.size])
-
-	ravel = flatten
-
-	def transpose(self, axis=None, /):
-		if axis is None:
-			return self.T
-		else:
-			pass
+		shape = (new := type(self)((), data))._shape
+		shape.size = size = self._shape.size
+		shape.data = [shape.size]
+		return new
 
 	def tolist(self, /) -> list:
-		array = [self.fill_value] * next(shape := reversed(self._shape))
+		array = [self.fill_value] * next(shape := reversed(self._shape.data))
 		for n in shape:
 			array = [*repeatfunc(array.copy, n)]
 		return array
 			
-	def moveaxes(self, axis1, axis2, /):
-		shape = self._shape
+	def moveaxes(self, axis1:int, axis2:int, /):
+		shape = self._shape.data
 		shape[axis1], shape[axis2] = shape[axis2], shape[axis1]
 
 	def swapaxes(self, axis1, axis2, /):
-		self = self.copy()
-		self.moveaxes(axis1, axis2)
+		(self := self.copy()).moveaxes(axis1, axis2)
 		return self
 
 	def reshape_func(func, /):
@@ -191,17 +232,15 @@ class Full:
 
 	@reshape_func
 	def reshape(self, shape):
-		shape = [*shape]
-		if self.size != (size := prod(shape)):
+		newshape = Shape(shape)
+		if self._shape.size != shape.size:
 			raise ValueError(
 				f"cannot reshape array of size {size} into shape {shape}")
-		return self._replace(_shape=shape, size=size)
+		return type(self)(newshape, self.fill_value)
 
 	@reshape_func
 	def resize(self, shape):
-		_shape = self.shape
-		_shape[:] = shape
-		obj_setattr(self, 'size', prod(_shape))
+		self._setattr('shape', Shape(shape))
 
 	del reshape_func
 
@@ -235,43 +274,27 @@ class Full:
 	@math_method
 	def prod(self, axis, along_axis, value, /):
 		if along_axis:
-			shape, size, axis = self.pop_axis(axis)
-			value **= axis
-			return self._replace(_shape=shape, size=size, value=value)
+			new, axis = self.pop_axis(axis)
+			new.fill_value **= axis
+			return new
 		else:
 			return value ** self.size
 
 	@math_method
 	def sum(self, axis, along_axis, value, /):
 		if along_axis:
-			shape, size, axis = self.pop_axis(axis)
-			value *= axis
-			return self._replace(_shape=shape, size=size, value=value)
+			new, axis = self.pop_axis(axis)
+			new.fill_value *= axis
+			return new
 		else:
 			return self.size * value
 
-	@math_method
-	def cumprod(self, axis, along_axis, value, /):
-		if along_axis:
-			pass
-		else:
-			pass
-
-	@math_method
-	def cumsum(self, axis, along_axis, value, /):
-		if along_axis:
-			pass
-		else:
-			size = self.size
-			end = value * (size + 1)
-			return Arange(size, (size,), value, end, value)
 
 	def axis_func(self, /, value, axis):
 		if axis is not None:
 			return value
 		else:
-			shape, size, axis = self.pop_axis(axis)
-			return self._replace(_shape=shape, size=size, value=value)
+			self.pop_axis(axis)[0]
 
 	def std(self, axis=None, /):
 		if shape := self.shape:
@@ -314,7 +337,6 @@ class Full:
 
 
 	def boolean_method(default, /):
-		
 		@methodtools.unassigned_method
 		def function(self, axis=None, /):
 			if self.size:
@@ -325,10 +347,3 @@ class Full:
 		return function	
 	
 	all, any = map(boolean_method, (True, False))
-
-
-	@classmethod
-	def create(cls, /, shape:Iterable[int], fill_value:Any):
-		if (size := prod(shape := [*shape])) < 0:
-			raise ValueError("Negative Dimensions are not allowed.")
-		return cls(shape, fill_value, size)
