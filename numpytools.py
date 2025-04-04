@@ -21,7 +21,7 @@ class Shape(UserList):
 			self.size = data.size
 		
 		else:
-			self.setsize(data := [*data])
+			self._setsize(data := [*data])
 			self.data = data
 
 	def __setitem__(self, index, value, /):
@@ -35,7 +35,7 @@ class Shape(UserList):
 			
 			else:
 				data[index] = value
-				self.setsize()
+				self._setsize()
 				return
 		else:
 			self.size = 0
@@ -48,17 +48,17 @@ class Shape(UserList):
 		if value := data.pop(index):
 			self.size //= value
 		else:
-			self.setsize(data)
+			self._setsize(data)
 
-	def setsize(self, data:Iterable[int], /):
-		self.size = +all(data) and prod(data)
+	def _setsize(self, data, /):
+		self.size = prod(data) if all(data) else 0
 
 	def pop(self, index=-1, /):
 		if value := (data := self.data).pop(index):
 			if size := self.size:
 				self.size = size // value
 		else:
-			self.setsize(data)
+			self._setsize(data)
 		return value
 
 	def append(self, value:int, /):
@@ -83,7 +83,7 @@ class Full:
 		_setattr('fill_value', fill_value)
 
 	def __getitem__(self, index, /):
-		ranges = map(range, shape := self._shape.data)
+		ranges = map(range, (shape := self._shape).data)
 		shape = shape.copy()
 		if isinstance(index, tuple):
 			if not index:

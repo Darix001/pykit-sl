@@ -13,13 +13,10 @@ from functools import wraps, update_wrapper as wrap, partial
 from collections.abc import Sequence, Callable, Iterator, Iterable, Generator
 
 from .mixedtools import partializer
-from .composetools import bicompose
 
 
 div_index = {0, -1}.__contains__
 
-cycle = bicompose(from_iterable := it.chain.from_iterable,
-	repeat := it.repeat)
 
 mapper = partializer(map)
 
@@ -27,8 +24,8 @@ frozen_dataclass = partial(dataclass, frozen=True)
 
 frozen_sloted_dataclass = partial(frozen_dataclass, slots=True)
 
-MAP = [it.repeat, from_iterable, reversed, it.islice, op.getitem, op.floordiv,
-len, op.contains, op.countOf]
+MAP = [repeat := it.repeat, from_iterable := it.chain.from_iterable,
+reversed, it.islice, op.getitem, op.floordiv, len, op.contains, op.countOf]
 
 MAP[:] = map(mapper, MAP)
 
@@ -50,6 +47,12 @@ NS = Sequence[Sequence]
 NWISE_ITER = {1:zip, 2:it.pairwise}
 
 SENTINEL = object()
+
+
+def cycle(data:Sequence, n=None, /) -> Iterator:
+	'''Returns an Iterator that repeats the sequence n times.
+	if n is None, the iterator repeats endlessly.'''
+	return from_iterable(repeat(data) if n is None else repeat(data, n))
 
 
 def swap(data:Sequence, indices:Iterable[int]):
@@ -571,33 +574,33 @@ class mul(RelativeSized):
 	def __getitem__(self, index, /):
 		try:
 			floordiv, index = divmod(index, len(data := self.data))
-			if div_index(floordiv // self.times):
+			if div_index(floordiv // self.r):
 				return data[index]
 		except ZeroDivisionError:
 			pass
 		self.IndexError()
 
 	def __len__(self, /):
-		return len(self.data) * self.times
+		return len(self.data) * self.r
 
 	def __contains__(self, value, /):
-		return True if self.times and (value in self.data) else False
+		return True if self.r and (value in self.data) else False
 
 	def iterfunc(reverse, /):
 		r = MAP[2] if reverse else None
 		def __iter__(self, /):
-			value = super().__iter__()
+			it = repeat(self.data, self.r)
 			if r:
-				value = r(value)
-			return from_iterable(value)
+				it = r(it)
+			return from_iterable(it)
 		return __iter__
 
 	def count(self, value, /) -> int:
-		return (r := self.times) and self.data.count(value) * r
+		return (r := self.r) and self.data.count(value) * r
 
 	def index(self, value, start=0, stop:OPINT=None, /) -> int:
 		index = self.data.index
-		if (r := self.times):
+		if (r := self.r):
 			if stop is None and not start:
 				return index(value)
 			div, start = divmod(start, r)
@@ -616,7 +619,7 @@ class Repeats(mul):
 	__mul__ = SequenceView.__mul__
 	
 	def __getitem__(self, index, /):
-		if (r := self.times):
+		if (r := self.r):
 			return self.data[index // r]
 		else:
 			self.IndexError()
@@ -630,7 +633,7 @@ class Repeats(mul):
 		return __iter__
 
 	def index(self, value, start=0, stop:OPINT=None, /) -> int:
-		if not (r := self.times):
+		if not (r := self.r):
 			self.value_error(value)
 		
 		index = self.data.index
@@ -798,7 +801,7 @@ class Zip_longest(Zip):
 		return new
 
 
-class Combinations(SubSequence, RelativeSized):
+class Combinations(SubSequence):
 	'''Base Class for combinatoric sequences. A combinations subclass is a type
 	of sequence that returns r-length sucessive tuples of different combinations
 	of all elements in data.'''
@@ -808,7 +811,7 @@ class Combinations(SubSequence, RelativeSized):
 		return not (r := self.r) or len(self.data) >= r
 
 
-class Nwise(Combinations):
+class Nwise(RelativeSized, Combinations):
 	'''Emulates tuples of every r elements of data.'''
 
 	def __getitem__(self, index, /):
@@ -867,34 +870,45 @@ class Product(Combinations):
 	__slots__ = ()
 	data:TS
 
-	def __init__(self, /, *sequences, repeat=1):
-		super().__init__(sequences, repeat)
-
 	def __repr__(self, /):
-		return (f"{type(self).__name__}({', '.join(map(repr, self.data))}"
-			f', repeat={self.r!r})'
-			)
-		return 
+		data = self.data
+		return (f"{type(self).__name__}({', '.join(map(repr, data.data))}"
+			f', repeat={data.r!r})')
+
+	def __mul__(self, n, /):
+		return type(self)(self.data * n)
 
 	def __bool__(self, /):
-		return all(data) if (data := self.data) else True
-
-	def __mul__(self, r, /):
-		return type(self)(*self.data, repeat=self.r * r)
+		return all(data) if (data := self.data.data) else True
 
 	def __getitem__(self, index, /):
-		data, size, _, r, n = self.stats()
-		index = range(n)[index]
+		data = self.data
+		n = math.prod(sizes := [*self.sizes]) ** (r := data.r)
+
+		if index < 0:
+			index += n
+			
+			if index < 0:
+				raise self.index_error()
+
+		elif index > n:
+			raise self.index_error()
+
 		values = []
 
-		for (data, size, r) in zip(data, size, r):
-			values.append(data[((index % (size * r)) // r)])
+		for data, size in zip(data, from_iterable(repeat(sizes))):
+			index, mod = divmod(index, size)
+			values.append(data[mod])
 
-		return tuple(values)
+		return tuple(reversed(values))
 
 
 	def __len__(self, /):
-		return math.prod(get_sizes(self.data)) ** self.r
+		return math.prod(self.sizes) ** self.data.r
+
+	@property
+	def sizes(self, /) -> Iterator[int]:
+		return get_sizes(self.data.data)
 
 	def iterfunc(r, /):
 		def __iter__(self, /)  -> zip:
@@ -934,25 +948,24 @@ class Product(Combinations):
 	r = list[int]
 
 	def stats(self, /) -> tuple[tuple, r, r, r, int]:
-		floordiv = MAP[-2]
-		size = [*get_sizes(data := self.data)]
-		size *= (repeat := self.r)
-		*count, n = it.accumulate(size, op.mul, initial=1)
-		times = [*floordiv(floordiv(repeat(n), size), count)]
-		return data * repeat, size, count, times, n
+		floordivmap = MAP[-1]
+		data = self.data
+		sizes = mul([*self.sizes], data.r)
+		*count, n = it.accumulate(sizes, op.mul, initial=1)
+		times = [*floordivmap(floordivmap(repeat(n), sizes), count)]
+		return data, sizes, count, times, n
 
 	del r
 
 	def _index(self, value, start, stop, /):
-		data, _, _, repeat, _, = self.stats()
-		return math.sumprod(map(op.indexOf, data, value), repeat)
+		rs = it.accumulate(cycle([*self.sizes], r), op.mul, initial=1)
+		return math.sumprod(map(op.indexOf, self.data, value), rs)
 
 	_contains, _count = map(_contains, (all, math.prod), CC_MAP)
 
 	@classmethod
-	def fromsequence(cls, data:NS, repeat=1):
-		(new := cls(repeat=repeat))._setattr('data', data)
-		return new
+	def fromargs(cls, /, *args, repeat=1):
+		return cls(mul(args, repeat))
 
 
 class Permutations(Combinations):
@@ -1120,5 +1133,5 @@ class Progression(Ranged):
 		return cls(range(n), start, step)
 
 
-del (UserDict, UserList, bicompose, partializer, partial, OPINT, TS, NS, ITII,
+del (UserDict, UserList, partializer, partial, OPINT, TS, NS, ITII,
 	Iterator, Iterable, Generator, Callable, Sequence, dataclass)
