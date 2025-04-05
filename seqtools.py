@@ -192,7 +192,7 @@ class SequenceView(BaseSequence):
 	
 	def __getitem__(self, index, /):
 		data = self.data
-		if type(index) is slice:
+		if isinstance(index, slice):
 			if len(r := range(n := len(data))[index]) == n:
 				if r.step > 0:
 					return self
@@ -220,7 +220,7 @@ class ReverseView(SequenceView):
 
 	def __getitem__(self, index, /):
 		data = self.data
-		if type(index) is slice:
+		if isinstance(index, slice):
 			if len(r := range(n := len(data) -1, -1, -1)[index]) == n:
 				if step < 0:
 					return SequenceView(data)
@@ -778,7 +778,7 @@ class Zip_longest(Zip):
 	__len__ = calcsize(max)
 
 	def __getitem__(self, index, /):
-		if type(index) is slice:
+		if isinstance(index, slice):
 			return super().__getitem__(index)
 		default = self._kwval
 		return tuple(get(data, index, default) if level else data[index]
