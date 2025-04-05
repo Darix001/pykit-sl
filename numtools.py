@@ -77,14 +77,11 @@ class Digits(abc.Sequence):
     This class is intended for dealing with very large integers numbers.'''
     __slots__ = ('_x', '_hash')
 
-    def __new__(cls, x:int, /):
-        if x in DIGITS:
-            return (x,)
-        else:
-            self = super().__new__(cls)
-            self._x = abs(x)
-            return self
-    
+    def __init__(self, x:int, /):
+        if not x:
+            raise ValueError("Number must not be zero.")
+        self._x = abs(x)
+
     def __repr__(self, /):
         return f"{type(self).__name__}({self._x!r})"
 
@@ -95,7 +92,6 @@ class Digits(abc.Sequence):
         return True
 
     def __reversed__(self, /):
-        x = self._x
         while x:
             x, mod = divmod(x, 10)
             yield mod
@@ -104,14 +100,14 @@ class Digits(abc.Sequence):
         if index >= 0:
             index -= len(self)
 
-        if div := self._x // (10 ** ~index):
-            return div % 10
+        if result := self._x // 10 ** ~index:
+            return result % 10
+
         else:
             raise IndexError("Digit object Index out of range.")
 
-
     def __contains__(self, digit, /):
-        return digit in DIGITS and digit in reversed(self)
+        return 0 < digit < 10 and digit in reversed(self)
 
     def __hash__(self, /):
         if (hash_value := getattr(self, '_hash', None)) is not None:
@@ -133,9 +129,13 @@ class Digits(abc.Sequence):
 
     def __add__(self, obj, /):
         if (cls := type(self)) is type(obj):
-            return cls((self._x * (10 ** len(obj))) + obj._x)
+            return cls(self._x * (10 ** len(obj)) + obj._x)
         else:
             return NotImplemented
+
+    @property
+    def x(self):
+        return self._x
 
     def index(self, digit:int, /, start:int=0, stop:int|None=None) -> int:
         return super().index(DIGITS.index(digit), start, stop)
@@ -143,8 +143,11 @@ class Digits(abc.Sequence):
     def count(self, digit:int, /) -> int:
         return super().count(digit) if digit in DIGITS else 0
 
+    def copy(self, /):
+        return self
+
     @classmethod
-    def fromiterable(cls, iterable:abc.Iterable[int], /):
+    def from_iterable(cls, iterable:abc.Iterable[int], /):
         #Check if the sequence has items
         for start in (iterable := iter(iterable)):
             break
@@ -159,47 +162,9 @@ class Digits(abc.Sequence):
             return (start,)
 
         return cls(start)
-            
 
-
-class DigitList(Digits, abc.MutableSequence):
-    __slots__ = ()
-
-    def __iadd__(self, obj, /):
-        if isinstance(obj, Digits):
-            self._x = (self._x * (10 ** len(obj))) + obj._x
-            return self
-        else:
-            return NotImplemented
-
-    def append(self, digit:int):
-        if digit in DIGITS:
-            self._x = self._x * 10 + digit
-        else:
-            raise ValueError("DigitList item must be in range(10)")
-
-    def reverse(self, /):
-        first = next(digits := reversed(self))
-        for digit in digits:
-            first = first * 10 + digit
-        self._x = first
-
-
-    def pop(self, /) -> Number:
-        self._x, digit = divmod(self._x, 10)
-        return digit
-
-    def extend(self, data:abc.Iterable[int], /):
-        x = self._x
-        if isinstance(data, Digits):
-            x = x * (10 ** len(data)) + data._x        
-        else:
-            for number in iterable:
-                mul = 10
-                if number not in DIGITS:
-                    mul **= (trunc(log10(number)) + 1)
-                x = x * mul + number
-        self._x = x
+    def zfill(self, width, /):
+        return self if width < 0 else type(self)(self._x * (10 ** width))
 
         
 def nbytes(x:int, /) -> int:
@@ -238,4 +203,4 @@ def factors(n:int, /) -> abc.Generator[int]:
             yield i
             yield div
 
-print(Digits(123456))
+print(Digits(1234)[0])
