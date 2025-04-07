@@ -3,12 +3,11 @@ import operator as op, collections.abc as abc, itertools as it
 from numbers import Number
 from bitarray import bitarray
 from re import compile as recompile
-from math import log10, isqrt, ceil, trunc
+from math import isqrt, ceil
 from itertools import count, compress, islice
 
-DIGITS = range(10)
-
 bitarray = bitarray('1')
+
 operator_funcs = {
     '':op.add, '+':op.add, '-':op.sub, '*':op.mul, '/':op.truediv, '**':op.pow,
     '//':op.floordiv,
@@ -17,6 +16,7 @@ operator_funcs = {
     
      '>':op.gt, '>=':op.ge, '<':op.lt, '<=':op.le, '==':op.eq, '!=':op.ne,
     }
+
 RE = recompile(r'[-+]?(?:\d*\.*\d+)')
 
 
@@ -71,101 +71,6 @@ def collatz(x:Number, /) -> abc.Generator[Number]:
         else:
             break
 
-
-class Digits(abc.Sequence):
-    '''Emulates a list of integers composed by the digits of a number.
-    This class is intended for dealing with very large integers numbers.'''
-    __slots__ = ('_x', '_hash')
-
-    def __init__(self, x:int, /):
-        if not x:
-            raise ValueError("Number must not be zero.")
-        self._x = abs(x)
-
-    def __repr__(self, /):
-        return f"{type(self).__name__}({self._x!r})"
-
-    def __len__(self, /):
-        return trunc(log10(self._x)) + 1
-
-    def __bool__(self, /):
-        return True
-
-    def __reversed__(self, /):
-        while x:
-            x, mod = divmod(x, 10)
-            yield mod
-
-    def __getitem__(self, index, /):
-        if index >= 0:
-            index -= len(self)
-
-        if result := self._x // 10 ** ~index:
-            return result % 10
-
-        else:
-            raise IndexError("Digit object Index out of range.")
-
-    def __contains__(self, digit, /):
-        return 0 < digit < 10 and digit in reversed(self)
-
-    def __hash__(self, /):
-        if (hash_value := getattr(self, '_hash', None)) is not None:
-            self._hash = hash_value = hash((self._x,))
-        return hash_value
-
-    def __mul__(self, times, /):
-        if times > 0:
-            base = 10 ** len(self)
-            original = x = self._x
-            
-            for _ in range(times - 1):
-                x =  x * base + original
-            
-            return type(self)(x)
-        else:
-            return ()
-
-
-    def __add__(self, obj, /):
-        if (cls := type(self)) is type(obj):
-            return cls(self._x * (10 ** len(obj)) + obj._x)
-        else:
-            return NotImplemented
-
-    @property
-    def x(self):
-        return self._x
-
-    def index(self, digit:int, /, start:int=0, stop:int|None=None) -> int:
-        return super().index(DIGITS.index(digit), start, stop)
-
-    def count(self, digit:int, /) -> int:
-        return super().count(digit) if digit in DIGITS else 0
-
-    def copy(self, /):
-        return self
-
-    @classmethod
-    def from_iterable(cls, iterable:abc.Iterable[int], /):
-        #Check if the sequence has items
-        for start in (iterable := iter(iterable)):
-            break
-        else:#return empty tuple if iterable has no items.
-            return ()
-        
-        for number in iterable:
-            mul = 10 if number in DIGITS else 10 ** (trunc(log10(number)) + 1)
-            start = start * mul + number
-                
-        else:
-            return (start,)
-
-        return cls(start)
-
-    def zfill(self, width, /):
-        return self if width < 0 else type(self)(self._x * (10 ** width))
-
         
 def nbytes(x:int, /) -> int:
     '''The amount of space in bytes that the integer would occupe.'''
@@ -203,4 +108,5 @@ def factors(n:int, /) -> abc.Generator[int]:
             yield i
             yield div
 
-print(Digits(1234)[0])
+
+print(Digits(1234567890).partition_at(1))

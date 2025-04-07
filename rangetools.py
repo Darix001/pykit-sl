@@ -137,6 +137,7 @@ def and_(r, x, /):
     s2 = x.step
     diff = Difference between starts
     g = greatest common divissor between steps'''
+    
     cls = type(r)
     start, b = r.start, x.start
 
@@ -163,10 +164,10 @@ def and_(r, x, /):
 
         # Solve for the smallest non-negative n
         # Modular inverse of (s1 // g) mod (s2 // g)
-        mod_inv = (1 / (s1 // g)) % (s2g := s2 // g)
+        mod_inv = pow(s1 // g, -1, s2g := s2 // g)
         
         # First intersection point
-        start += ((diff // g * mod_inv) % s2g) * s1 
+        start += ((diff // g * mod_inv) % s2g) * s1
 
     if (stop := x.stop) > (rstop := r.stop):
         stop = rstop

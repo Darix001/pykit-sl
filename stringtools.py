@@ -1,7 +1,8 @@
-from collections.abc import Callable, Iterator
-from operator import methodcaller, getitem
-from itertools import accumulate, repeat
 from array import array
+from itertools import accumulate, repeat
+from operator import methodcaller, getitem
+from collections.abc import Callable, Iterator
+
 
 STRITER = Iterator[str]
 
@@ -107,13 +108,19 @@ def stairs(string:str, r:int, /, fillchar:str=' ', increase=1, *,
 
 
 def rreplace(string:str, oldsub:str, newsub:str, /, count=-1) -> str:
-    return newsub.join(string.rsplit(oldsub, count))
+    if count:
+        if count == 1:
+            first, mid, last = string.partition(oldsub)
+            return string if not mid else f"{first}{newsub}{last}"
+        else:
+            return newsub.join(string.rsplit(oldsub, count))
+    else:
+        return string
 
 
 def replacelast(string:str, oldsub:str, newsub:str, /) -> str:
     first, mid, last = string.rpartition(oldsub)
     return string if not mid else f"{first}{newsub}{last}"
-
 
 
 del Callable, Iterator, STRITER
