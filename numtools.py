@@ -1,47 +1,61 @@
-import operator as op, collections.abc as abc, itertools as it
+import operator as op, collections.abc as abc, itertools as it, re, math
 
 from numbers import Number
-from bitarray import bitarray
-from re import compile as recompile
+from functools import cache
 from math import isqrt, ceil
+from bitarray import bitarray
 from itertools import count, compress, islice
 
 bitarray = bitarray('1')
 
-operator_funcs = {
-    '':op.add, '+':op.add, '-':op.sub, '*':op.mul, '/':op.truediv, '**':op.pow,
-    '//':op.floordiv,
-    
-    '&':op.and_, '|':op.or_, '^':op.xor, '%':op.mod, '@':op.matmul,
-    
+op_funcs = {
+    '+':op.add, '-':op.sub, '*':op.mul, '/':op.truediv, '**':op.pow,
+    '//':op.floordiv, '&':op.and_, '|':op.or_, '^':op.xor, '%':op.mod,
      '>':op.gt, '>=':op.ge, '<':op.lt, '<=':op.le, '==':op.eq, '!=':op.ne,
     }
 
-RE = recompile(r'[-+]?(?:\d*\.*\d+)')
+
+math_funcs = (
+    'asin', 'sin', 'sinh', 'asinh', #sin functions
+    'acos', 'cosh', 'acosh', 'cos', #cos functions
+    'log', 'log10', 'log2', 'log1p', #log functions
+    'tan', 'tanh', 'atan', 'atanh', 'atan2', #tan funcs
+    'trunc', 'ceil', 'floor', 'fabs', 'sqrt', 'isqrt' #other funcs
+    )
+
+math_funcs = dict(zip(math_funcs, op.attrgetter(*math_funcs)(math)),
+    abs=abs, round=round, pow=pow)
 
 
-def eval(string:str, /, dtype:abc.Callable=int, start:int=0) -> Number:
+def simple_eval(string:str, /, dtype=int,
+    re=re.compile(r'[-+]?(?:\d*\.*\d+)')) -> Number:
+    start = string
+    numbers = map(dtype, re.findall(substring))
+    x = next(numbers)
+    operator = re.split(substring)
+    del operator[0]
+    funcs = map(op_funcs.get, operator)
+    
+    for func, x in zip(funcs, numbers):
+        x = func(x, n)
+
+    return x
+
+
+
+def aeval(string:str, /, dtype:abc.Callable=int, start:int=0) -> Number:
     '''Safely evaluates a numeric string expression.'''
-    string = string.replace(' ', '')
-
-    while stop := string.find(')', start) + 1:
+    while (stop := string.find(')', start)) != -1:
         start = string.rfind('(', 0, stop)
-        substring = string[start:stop]
-        numbers = map(dtype, RE.findall(substring))
-        x = next(numbers)
-        operator = RE.split(substring)
-
-        del operator[0]
-
-        op_funcs = map(operator_funcs.get, operator)
-
-        for op_func, x in zip(op_funcs, numbers):
-            x = op_func(x, n)
-
-        string = string.replace(substring, f"{x!s}")
-
-    return dtype(string)
-
+        if sstart := start + 1:
+            result = simple_eval(string[start:stop], dtype)
+            if string[start - 1].isalpha():
+                pass
+            else:
+                string = f"{string[:start]}{result}{string[stop:]}"
+        else:
+            raise ValueError("MalFormed String")
+            
 
 def cc2(compressor:abc.Iterator, /) -> abc.Iterator[int]:
     '''shortcut for: itertools.compress(itertools.count(2), compressor)'''
@@ -50,7 +64,8 @@ def cc2(compressor:abc.Iterator, /) -> abc.Iterator[int]:
 
 def sieve(x:int, /) -> abc.Iterator[int]:
     '''All Prime Numbers lower than x.'''
-    for x in _cc2(it.islice(data := bitarray * (x + 1), 2, isqrt1(x))):
+    data = bitarray * (x + 1)
+    for x in _cc2(it.islice(data, 2, sqrt1(x) + 1)):
         data[x*x::x] = 0
     
     del data[:2]
@@ -59,7 +74,7 @@ def sieve(x:int, /) -> abc.Iterator[int]:
 
 def gauss_sum(n:Number, /) -> Number:
     '''Sum of all numbers from start to stop.'''
-    return n * (n + 1) // 2
+    return (n * (n + 1)) // 2
 
 
 def collatz(x:Number, /) -> abc.Generator[Number]:
@@ -89,24 +104,6 @@ def lcm2(x:Number, y:Number, /) -> Number:
 
     return x
 
+del math, Number
 
-def isqrt1(n:Number, /) -> int:
-    '''Returns integer part of sqrt of number plus 1.'''
-    return isqrt(n) + 1
-
-
-def factors(n:int, /) -> abc.Generator[int]:
-    '''Returns all the factors of integer. This code is a variation of the
-    source code from Stack Overflow: https://stackoverflow.com/a/6800214'''
-    yield 1
-    yield n
-
-    for i in range(2, isqrt1(n)):
-        div, mod = divmod(n, i)
-
-        if not mod:
-            yield i
-            yield div
-
-
-print(Digits(1234567890).partition_at(1))
+print(re.compile(r'[-+]?(?:\d*\.*\d+)').findall('3'))

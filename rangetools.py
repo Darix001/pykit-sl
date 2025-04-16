@@ -1,12 +1,14 @@
-import math, itertools as it
-from operator import attrgetter
+import math
+
+from numbers import Number
+from operator import attrgetter, neg, pos
 from functools import update_wrapper as wrap, wraps, reduce
 
 ROOT12 = math.sqrt(12)
 rargs = attrgetter('start', 'stop', 'step')
 
 
-def prod(r:range, /):
+def prod(r, /):
     '''Calculates the product of a range.'''
     if not r:
         return 1
@@ -19,46 +21,57 @@ def prod(r:range, /):
 
 
 def statistic(func, /):
-    def function(r:range, /):
+    def function(r, /):
         if r:
             return func(r)
         else:
             raise ValueError(f"No {func.__name__} for empty range.")
     return wrap(function, func, updated=('__annotations__',))
 
+
+def first_plus_last(r, /) -> Number:
+    return r.start + r[-1]
+
+
 @statistic
-def fmean(r) -> float:
+def fmean(r, /) -> Number:
     '''Calculates the mean of a range.'''
-    return (r.start + r[-1]) / 2
+    return first_plus_last(r) / 2
 
-def mean(r:range, /) -> float | int:
-    return math.trunc(r) if (r := fmean(r)).is_integer() else r
+
+def mean(r, /) -> Number | int:
+    '''Calculates the mean of a range and returns integer when mean if is
+    a whole numbers .'''
+    return mean if (mean := fmean(r)) % 1 else math.trunc(mean)
+
 
 @statistic
-def median_high(r) -> int:
+def median_high(r, /) -> int:
     '''Return the high median of a range.'''
     return r[len(r) // 2]
 
+
 @statistic
-def median_low(r) -> int:
+def median_low(r, /) -> int:
     '''Return the low median of a range.'''
     i, mod = divmod(n := len(r), 2)
     return r[i] if mod else r[i - 1]
 
 @statistic
-def median(r) -> int | float:
+def median(r, /) -> int | float:
     '''Return the median (middle value) of a range.'''
     i, mod = divmod(n := len(r), 2)
     return r[i] if mod else (r[i] + r[i - 1]) / 2
 
 
-def rfsum(r) -> int:
+def rfsum(r, /) -> Number:
     '''Calculates sum(range(*args)).'''
-    return (r.start + r[-1]) * len(r) / 2 if r else 0
+    return first_plus_last(r) * len(r) / 2 if r else 0
 
-def rsum(r) -> int:
+
+def rsum(r, /) -> Number:
     '''Calculates sum(range(*args)).'''
-    return (r.start + r[-1]) * len(r) // 2 if r else 0
+    return first_plus_last(r) * len(r) // 2 if r else 0
 
 
 def minmax(func, /):
@@ -68,28 +81,24 @@ def minmax(func, /):
     return function
 
 @minmax
-def rmin(r, growing, /) -> int:
+def rmin(r, growing, /) -> Number:
     return r.start if growing else r[-1]
 
 @minmax
-def rmax(r, growing, /) -> int:
+def rmax(r, growing, /) -> Number:
     return r.start if growing else r[-1]
 
 @minmax
-def argmin(r, growing, /) -> int:
+def argmin(r, growing, /) -> Number:
     return 0 if growing else len(r) - 1
 
 @minmax
-def argmax(r, growing, /) -> int:
+def argmax(r, growing, /) -> Number:
     return len(r) - 1 if growing else 0
 
 
-def rangesetfunc(func, data={'r':range, 'x':range, 'return':bool}, /):
-    func.__annotations__ |= data
-    return func
 
-@rangesetfunc
-def isdisjoint(r, x, /):
+def isdisjoint(r, x, /) -> bool:
     '''Return True if two ranges have a null intersection.'''
     if r and x:
         if r.step <= -1:
@@ -100,8 +109,8 @@ def isdisjoint(r, x, /):
     else:
         return True
 
-@rangesetfunc
-def issubrange(r, x, /):
+
+def issubrange(r, x, /) -> bool:
     '''Report whether another range contains this range.'''
     if not r:
         return True
@@ -110,13 +119,13 @@ def issubrange(r, x, /):
     else:
         return r.start in x and r[-1] in x
 
-@rangesetfunc
-def issuperrange(r, x, /):
+
+def issuperrange(r, x, /) -> bool:
     '''Report whether this range contains another range.'''
     return issubrange(x, r)
 
-@rangesetfunc
-def contains(r, x, /):
+
+def subcontains(r, x, /) -> bool:
     '''Report wether elements of x range are in r range.'''
     if not x:
         return True
@@ -125,7 +134,7 @@ def contains(r, x, /):
     else:
         return x.start in r and x[-1] in r
 
-@rangesetfunc
+
 def and_(r, x, /):
     '''The algorithm to get the first intersection point was provided
     by chatGPT
@@ -193,7 +202,7 @@ def intersection(*args):
 
 
 def variance_func(func, /):
-    def function(x:range, /):
+    def function(x, /):
         if self:
             n = len(self)
             return func(self.step, ((n * n) - 1) / n)
@@ -209,3 +218,60 @@ def std(d, n, /):
 @variance_func
 def var(d, n, /):
     return ((d * d) / 12) * n
+
+
+def opfunc(func, /):
+    def func(r, /): type(r)(*map(func, rargs(r)))
+    func.__doc__ = f'Returns {(name := func.__name__)} version of range r'
+    func.__name__ = name
+    return func
+
+
+def invert(r, /):
+    return type(r)(~r.start, ~r.stop, -r.step)
+
+
+def advanced(r, n:Number=1, /):
+    '''Returns a new range that walks n steps to the right (default n=1).
+    If n is negative, advance left.
+    advance(range(10), 1) is, in the context of a sequence, roughly equivalent
+    to:
+    numpy.arange(10) + 1 and [x + 1 for x in range(10)]'''
+    if r:
+        n *= (step := r.step)
+        return cls(r.start + steps, stop + steps, step)
+    else:
+        return r
+
+
+def expanded(r, n:Number=1, /):
+    '''Returns a new range that expanded n steps to the right (default n=1).
+    If n is negative, expand left.
+
+    This method does not care if the range is empty,
+    so expand(range(0)) returns range(1).
+
+    However, it can return empty range if there is a big enough different
+    between the start and the stop values relative to the step.
+    
+    For instance:
+    expand(range(30, 10)) returns range(30, 11) due to the positive step.
+    With this in count, please use this method with care.
+
+    '''
+    steps = n * (step := r.step)
+    start, stop = r.start, r.stop
+    if n > 0:
+        stop += steps
+    else:
+        start += steps
+    return type(r)(start, stop, step)
+
+
+__and__ = and_
+
+neg = __neg__ = opfunc(neg)
+
+pos = __pos__ = opfunc(pos)
+
+__invert__ = invert

@@ -91,15 +91,14 @@ class Full:
 			
 			try:
 				index = iter(index)
-
+						
 				for axis, a in enumerate(ranges):
 					for i in index:
-						if type(i) is slice:
-							shape[0] = len(a[i])
-						
-						else:
-							a[i]
+						if type(i := a[i]) is int:
 							del shape[0]
+							break
+						else:
+							shape[0] = len(i)
 			
 			except IndexError as e:
 				raise TypeError(

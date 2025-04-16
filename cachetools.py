@@ -28,7 +28,7 @@ del defaultdict
 class StarCache(Cache, dict[tuple, Any]):
 	__slots__ = ()
 
-	def __call__(self, *args, /):
+	def __call__(self, /, *args):
 		return self[args]
 
 	def __missing__(self, args, /):
