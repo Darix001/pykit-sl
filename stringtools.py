@@ -139,6 +139,7 @@ class StringPart(Base):
     __slots__ = 'string', 'indices'
     string:str
     indices:range
+    maketrans = str.maketrans
     
     def __post_init__(self, /):
         if self.indices.step != 1:
@@ -179,12 +180,13 @@ class StringPart(Base):
 
     def string_method(name, /):
         
-        def function(self, sub, start:int=0, stop:int|None=None, /):
+        def func(self, sub, start:int=0, stop:int|None=None, /):
             indices = self.indices[start:stop]
             method = getattr(self.string, name)
             return method(sub, indices.start, indices.stop)
-        
-        return function
+
+        func.__doc__ = getattr(str, name).__doc__
+        return func
 
     endswith = startswith = count = setname_factory(string_method)
 
@@ -254,6 +256,48 @@ class StringPart(Base):
         for _ in it:
             ranges.append(indices[ranges[-1].stop:])
             break
+
+
+    def removeprefix(self, prefix, /):
+        '''Return a StringPart with the given prefix string removed if present.
+
+        If the string starts with the prefix string, return string[len(prefix):].
+        Otherwise, return a copy of the original string.'''
+        
+        string = self.string
+        indices = self.indices
+        if preffix and string.startswith(prefix, indices.start, indices.stop):
+            return type(self)(string, i[len(prefix):])
+
+        return self
+
+
+    def removesuffix(self, suffix, /):
+        '''Return a StringPart with the given suffix string removed if present.
+
+        If the string ends with the suffix string,
+        return string[:-len(suffix)].
+
+        Otherwise, return a copy of the original string.'''
+        
+        string = self.string
+        indices = self.indices
+        if suffix and string.endswith(suffix, indices.start, indices.stop):
+            return type(self)(string, i[:-len(suffix)])
+
+        return self
+
+
+    def partition(self, sep, /) -> tuple[str, str, str]:
+        indices = self.indices
+        string = self.string
+        if value := string.find():
+            cls = type(self)
+            
+            return cls()
+        else:
+            return (self, '', '')
+
 
 
     @classmethod
