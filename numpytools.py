@@ -304,7 +304,7 @@ class Full:
 	var = std
 
 
-	@methodtools.multiname_method
+	@methodtools.setname_factory
 	def argmax(name, /):
 		msg = f"attempt to get {name} of an empty sequence"
 		def function(self, axis=None, ):
@@ -318,7 +318,7 @@ class Full:
 	argmin = argmax
 
 
-	@methodtools.multiname_method
+	@methodtools.setname_factory
 	def max(name, /):
 		msg = (f"Can't perform {name}imun reduction"
 			"operation on zero-size array")

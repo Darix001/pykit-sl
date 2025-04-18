@@ -1,17 +1,15 @@
-from .cachetools import Cache
+from .methodtools import setname_factory, builtin_method
 
 from array import array
-from collections import deque
 from functools import wraps, partial
-from dataclasses import dataclass, make_dataclass
 from collections.abc import Callable, Iterator
-from itertools import accumulate, repeat, filterfalse
-from operator import methodcaller, getitem, itemgetter, attrgetter
+from itertools import accumulate, repeat, islice
+from dataclasses import dataclass, make_dataclass
+from operator import methodcaller, getitem, itemgetter
 
 
 STRITER = Iterator[str]
-get_second = itemgetter(1)
-attrgetters = Cache(attrgetter)
+item1 = itemgetter(1)
 
 
 class array(array):
@@ -133,117 +131,182 @@ def preffixer(string:str, /):
     return methodcaller('replace', '', string, 1)
 
 
-def mal_formed_string():
-    raise ValueError("Mal Formed String.")
+Base = make_dataclass('Base', (('string', str),), slots=True, init=False)
 
 
-Base = make_dataclass('Base', (('string', str),), slots=True, frozen=True)
-
-
-@dataclass(frozen=True)
-class Group(Base):
-    __slots__ = ('indices', 'deepness')
+@dataclass
+class StringPart(Base):
+    __slots__ = 'string', 'indices'
+    string:str
     indices:range
-    deepness:int
-
-    def __repr__(self, /):
-        span = self.span
-        return (f"<Group object(match={self!s},"
-            f"indices={self.span!r}, deepness={self.deepness!r})")
+    
+    def __post_init__(self, /):
+        if self.indices.step != 1:
+            raise ValueError("Step must be 1.")
 
     def __str__(self, /):
-        return self.string[self.start:self.stop]
+        indices = self.indices
+        return self.string[indices.start:indices.stop]
+
+    def __getitem__(self, key, /):
+        string = self.string
+        if type(key := self.indices[key]) is int:
+            return string[key]
+        else:
+            type(self)(string, key)
+
+    @builtin_method
+    def __len__(func, /):
+        return lambda self, /: func(self.indices)
+
+    __bool__ = __len__
+
+    def __iter__(self, /):
+        it = iter(string := self.string)
+        indices = self.indices
+        
+        stop = indices.stop
+        
+        if start := indices.start:
+            it.__setstate__(start)
+            stop -= start
+
+        return it if stop > len(string) else islice(it, stop)
 
 
+    def __reversed__(self, /):
+        return map(getitem, repeat(self.string), self.indices)
 
-def encloser(opening:str, closing:str=''):
-    if not closing:
-        opening, closing = opening
+    def string_method(name, /):
+        
+        def function(self, sub, start:int=0, stop:int|None=None, /):
+            indices = self.indices[start:stop]
+            method = getattr(self.string, name)
+            return method(sub, indices.start, indices.stop)
+        
+        return function
 
-    return partial(Encloser, {opening:1, closing:-1}.get)
-
-
-@dataclass(frozen=True)
-class Encloser(Base):
-    __slots__ = 'groups'
-    string:str
-    groups:list[Group]
-    
-    def __init__(self, func, string:str, /):
-        it = enumerate(map(func, string))
-        super().__init__(string)
-        object.__setattr__(self, 'groups', groups := [])
-        starts = []
-        deep = 0
-
-        for index, sign in filter(get_second, it):
-            deep += sign
-            if deep == -1:
-                mal_formed_string()
-
-            if sign == 1:
-                starts.append(index)
-            else:
-                groups.append(
-                    Group(string, range(starts.pop(), index + 1), deep)
-                    )
-
-        if deep:
-           mal_formed_string()
-
-        groups.sort(key=attrgetters['indices.start'])
-
-
-    # def deep_map(func, /):
-    #     diff = 0
-    #     string = self.string
-
-    #     for group in sorted(self.groups, key=attrgetters['step']):
-    #         func(string[group.start:group.stop])
+    endswith = startswith = count = setname_factory(string_method)
 
     
-    def sortfunc(func, key=attrgetters['deep'], /):
-
-        @wraps(func)
-        def function(self, /):
-            group = func(self.groups, key)
-            return self.string[group.start:group.stop]
+    @setname_factory
+    def index(name, factory=string_method, /):
+        
+        @wraps(func := factory(name))
+        def function(*args):
+            return args[0].indices.index(func(*args))
 
         return function
 
-    @sortfunc
-    def deepest(groups, key, /):
-        return max(groups, key=key)
+    rindex = index
+    
 
-    @sortfunc
-    def superficial(groups, key, /):
-        return next(filterfalse(key, groups))
-
-
-    def split(self, maxsplit:int=-1, /):
-        data = []
+    @setname_factory
+    def find(name, factory=string_method, /):
         
-        if maxsplit:
+        @wraps(fn := factory(name))
+        def function(*args):
+            return args[0].indices.index(i) if (i := fn(*args)) != -1 else i
+
+        return function
+
+    rfind = find
+
+    def splitfunc(func, /):
+        
+        def function(self, /, sep, maxsplit=-1):
+            indices = self.indices
+            ranges = []
+            start, stop = indices.start, indices.stop
+            sep_size = len(sep)
             string = self.string
             it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
-            indices = map(attrgetters['indices'],
-             filterfalse(attrgetters['deepness'], self.groups)
-             )
-            start = 0
+            func(ranges, indices, start, stop, string, len(sep), sep, it)
+            return ranges and [*map(type(self), repeat(string), ranges)]
 
-            for index, indices in zip(it, indices):
-                data.append(string[:indices.start])
-                string = string[indices.stop:]
+        return function
 
-            for x in it:
-                data.append(string)
+
+    @splitfunc
+    def split(ranges, indices, start, stop, string, sep_size, sep, it, /):
+        for _ in it:
+            if (value := string.find(sep, start, stop)) == -1:
                 break
+            else:
+                ranges.append(range(start, value))
+                start = value + sep_size
 
-        return data
+        for _ in it:
+            ranges.append(indices[ranges[-1].stop + sep_size:])
+            break
 
 
-    def deep_map():
-        pass
+    @splitfunc
+    def rsplit(ranges, indices, start, stop, string, sep_size, sep, it, /):
+        #MODIFY
+        for _ in it:
+            if (value := string.rfind(sep, start, stop)) == -1:
+                break
+            else:
+                ranges.append(range(start, value))
+                start = value + sep_size
+
+        for _ in it:
+            ranges.append(indices[ranges[-1].stop:])
+            break
 
 
-del Callable, Iterator, STRITER, attrgetter, itemgetter
+    @classmethod
+    def from_indices(cls, string, /, *args):
+        indices = range(len(string))
+        return cls(string, indices[slice(*args)] if args else indices)
+
+
+        
+def nested_matcher(chars:str, /):
+    op, cl = chars
+
+    def function(string:str, /, strip=False):
+
+        def mal_formed_string():
+            nonlocal starts, index
+            
+            if starts: #There is an unclosed Group
+                index = starts.pop()
+                text = f'{op!r} was never closed'
+            else:#Unmatched CLose character(s)
+                text = 'Unmatched ' +  cl
+
+            raise ValueError(f'{text}, at column {index - strip!r}')
+
+        groups = []
+        it = filter(item1, enumerate(map({op:1, cl:-1}.get, string), strip))
+        starts = []
+        depth = 0
+        stop_add = -1 if strip else 1
+
+        for index, sign in it:
+            depth += sign
+
+            if sign == 1:
+                
+                if depth > len(groups):
+                    groups.append([])
+
+                starts.append(index)
+            
+            elif depth == -1:
+                mal_formed_string()
+            
+            else:
+                groups[depth].append(string[starts.pop():index + stop_add])
+
+        if depth:
+           mal_formed_string()
+        else:
+            return groups
+
+    return function
+
+
+del Callable, Iterator, STRITER, itemgetter

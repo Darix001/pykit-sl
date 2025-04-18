@@ -74,7 +74,7 @@ def newglobals(func, globals, /):
 	return update_wrapper(function, func)
 
 
-class multiname_method(unassigned_method):
+class setname_factory(unassigned_method):
 	'''Given a function, wich assigned multiple names on a class, 
 	passes the name to the function and attachs the new resulting functions
 	to the assigned class variable names.
@@ -213,17 +213,21 @@ def set_coname(func, /, dec=None):
 
 
 def copy_fromcls(cls, /):
-	@multiname_method
+	@setname_factory
 	def factory(name, /):
 		return func_copy(getattr(cls, name))
 
 
 def dunder_method(module, strip=None):
+	
 	def decorator(func, /):
-		@multiname_method
+	
+		@setname_factory
 		def function(name, /):
 			return func(getattr(module, name.strip('_') if strip else name))
+	
 		return function
+	
 	return decorator
 
 
