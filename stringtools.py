@@ -1,6 +1,7 @@
-from .methodtools import setname_factory, builtin_method
+from .methodtools import setname_factory, builtin_magic, name_wrap, unassigned
 
 from array import array
+from string import whitespace
 from functools import wraps, partial
 from collections.abc import Callable, Iterator
 from itertools import accumulate, repeat, islice
@@ -135,16 +136,12 @@ Base = make_dataclass('Base', (('string', str),), slots=True, init=False)
 
 
 @dataclass
-class StringPart(Base):
+class Sub(Base):
     __slots__ = 'string', 'indices'
     string:str
     indices:range
     maketrans = str.maketrans
     
-    def __post_init__(self, /):
-        if self.indices.step != 1:
-            raise ValueError("Step must be 1.")
-
     def __str__(self, /):
         indices = self.indices
         return self.string[indices.start:indices.stop]
@@ -156,7 +153,7 @@ class StringPart(Base):
         else:
             type(self)(string, key)
 
-    @builtin_method
+    @builtin_magic
     def __len__(func, /):
         return lambda self, /: func(self.indices)
 
@@ -178,7 +175,19 @@ class StringPart(Base):
     def __reversed__(self, /):
         return map(getitem, repeat(self.string), self.indices)
 
-    def string_method(name, /):
+    def __contains__(self, string, /):
+        i = self.indices
+        return self.string.find(string, i.start, i.stop) != -1
+
+    def __eq__(self, s, /):
+        if isinstance(type(string := self.string), s):
+            i = self.indices
+            return len(s) == len(i) and string.startswith(s, i.start, i.stop)
+        else:
+            return NotImplemented
+
+
+    def stringfunc(name, /):
         
         def func(self, sub, start:int=0, stop:int|None=None, /):
             indices = self.indices[start:stop]
@@ -188,11 +197,11 @@ class StringPart(Base):
         func.__doc__ = getattr(str, name).__doc__
         return func
 
-    endswith = startswith = count = setname_factory(string_method)
+    endswith = startswith = count = setname_factory(stringfunc)
 
     
     @setname_factory
-    def index(name, factory=string_method, /):
+    def index(name, factory=stringfunc, /):
         
         @wraps(func := factory(name))
         def function(*args):
@@ -204,7 +213,7 @@ class StringPart(Base):
     
 
     @setname_factory
-    def find(name, factory=string_method, /):
+    def find(name, factory=stringfunc, /):
         
         @wraps(fn := factory(name))
         def function(*args):
@@ -216,35 +225,39 @@ class StringPart(Base):
 
     def splitfunc(func, /):
         
+        @name_wrap(func)
         def function(self, /, sep, maxsplit=-1):
-            indices = self.indices
-            ranges = []
-            start, stop = indices.start, indices.stop
-            sep_size = len(sep)
-            string = self.string
+            i = self.indices
             it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
-            func(ranges, indices, start, stop, string, len(sep), sep, it)
-            return ranges and [*map(type(self), repeat(string), ranges)]
+            gen = func(i.start, i.stop, s := self.string, len(sep), sep, it)
+            ranges = map(range, gen, gen)
+            return [*map(type(self), repeat(s), ranges)]
 
         return function
 
 
     @splitfunc
-    def split(ranges, indices, start, stop, string, sep_size, sep, it, /):
+    def split(start, stop, string, sep_size, sep, it, /):
         for _ in it:
+            yield start
             if (value := string.find(sep, start, stop)) == -1:
                 break
             else:
-                ranges.append(range(start, value))
+                yield value
                 start = value + sep_size
 
+        else:
+            return
+
         for _ in it:
-            ranges.append(indices[ranges[-1].stop + sep_size:])
+            yield value + sep_size
             break
+
+        yield stop
 
 
     @splitfunc
-    def rsplit(ranges, indices, start, stop, string, sep_size, sep, it, /):
+    def rsplit(start, stop, string, sep_size, sep, it, /):
         #MODIFY
         for _ in it:
             if (value := string.rfind(sep, start, stop)) == -1:
@@ -288,65 +301,107 @@ class StringPart(Base):
         return self
 
 
-    def partition(self, sep, /) -> tuple[str, str, str]:
-        indices = self.indices
-        string = self.string
-        if value := string.find():
-            cls = type(self)
-            
-            return cls()
-        else:
-            return (self, '', '')
+    def partitionfunc(name, /) -> tuple:
 
+        @unassigned
+        def function(self, sep, /):
+            indices = self.indices
+            string = self.string
+            start, stop = indices.start, indices.stop
+
+            if value := getattr(string, name)(sep, start, stop):
+                cls = type(self)
+                return (cls(string, range(start, value)), sep,
+                    cls(string, range(value + len(sep), stop)))
+            else:
+                return (self, '', '')
+
+        return function
+
+
+    partition, rpartition = map(partitionfunc, ('find', 'rfind'))
 
 
     @classmethod
-    def from_indices(cls, string, /, *args):
-        indices = range(len(string))
-        return cls(string, indices[slice(*args)] if args else indices)
+    def new(cls, string, start:int=0, stop:int=-1, /):
+        return cls(string, range(start, len(string) if stop < 0 else stop))
+
+    @setname_factory
+    def isupper(name, /):
+        func = methodcaller(name)
+        return lambda self, /: all(map(func, self))
+
+    isascii = islower = isprintable = istitle = isspace = isdecimal = isupper
+    isdigit = isnumeric = isalpha = isalnum = isidentifier = isupper
+
+    
+    def stripfunc(func, /):
+        
+        @name_wrap(func)
+        def function(self, chars=None, /):
+            if chars is None:
+                chars = whitespace
+            
+            elif not chars:
+                return self
+
+            else:
+                i = self.indices
+                return func(self.string, i.start, i.stop, chars)
+
+        return function
 
 
+    @stripfunc
+    def strip(string, start, stop, chars, /):
+        pass
+
+
+    @stripfunc
+    def lstrip(string, start, stop, chars, /):
+        pass
+
+
+    @stripfunc
+    def rstrip(string, start, stop, chars, /):
+        pass
+    
         
 def nested_matcher(chars:str, /):
     op, cl = chars
 
     def function(string:str, /, strip=False):
 
-        def mal_formed_string():
-            nonlocal starts, index
-            
-            if starts: #There is an unclosed Group
-                index = starts.pop()
-                text = f'{op!r} was never closed'
-            else:#Unmatched CLose character(s)
-                text = 'Unmatched ' +  cl
-
-            raise ValueError(f'{text}, at column {index - strip!r}')
+        def error(text, index, /):
+            nonlocal strip
+            return ValueError(f'{text}, at column {index - strip!r}')
 
         groups = []
         it = filter(item1, enumerate(map({op:1, cl:-1}.get, string), strip))
-        starts = []
-        depth = 0
+        it2 = map(len, repeat(starts := [])) #Iterator for DRY code
         stop_add = -1 if strip else 1
 
-        for index, sign in it:
-            depth += sign
+        #depth = number of openings == len(starts)
+        for (index, sign), depth in zip(it, it2):
 
+            #An opening
             if sign == 1:
-                
-                if depth > len(groups):
+                if depth >= len(groups):
                     groups.append([])
 
                 starts.append(index)
-            
-            elif depth == -1:
-                mal_formed_string()
-            
-            else:
-                groups[depth].append(string[starts.pop():index + stop_add])
 
-        if depth:
-           mal_formed_string()
+            #If there is a closing, there must be an opening catched before
+            elif depth:
+                groups[depth - 1].append(string[starts.pop():index + stop_add])
+
+            #At this point, the string has more closings than openings.
+            else:
+                raise error("unmatched " + cl, index)
+
+
+        if starts:
+           raise error(op + " was never closed", starts.pop())
         else:
             return groups
 

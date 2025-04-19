@@ -16,7 +16,9 @@ func_args = attrgetter('__code__', '__globals__', '__name__',
 	'__defaults__', '__closure__')
 
 ASSIGNMENTS = ('__module__', '__qualname__', '__doc__', '__annotations__',
-	'__type_params__', '__kwdefaults__',)
+	'__type_params__', '__kwdefaults__')
+
+WITHOUT_ARGS_ASSIGMENTS = ('__module__', '__name__', '__qualname__', '__doc__')
 
 
 class Base:
@@ -31,7 +33,7 @@ class multigetter(Base):
 		return self.func(owner if instance is None else instance)
 
 
-class unassigned_method(Base):
+class unassigned(Base):
 	'''takes a method and assigns it the name of the given class variable'''
 
 	def __set_name__(self, cls, name, /):
@@ -74,7 +76,11 @@ def newglobals(func, globals, /):
 	return update_wrapper(function, func)
 
 
-class setname_factory(unassigned_method):
+name_wrap = partial(wraps,
+	assigned=('__module__', '__name__', '__qualname__', '__doc__',))
+
+
+class setname_factory(unassigned):
 	'''Given a function, wich assigned multiple names on a class, 
 	passes the name to the function and attachs the new resulting functions
 	to the assigned class variable names.
@@ -96,7 +102,7 @@ class setname_factory(unassigned_method):
 		add_method(cls, self.func(name), name)
 
 
-class set_name(unassigned_method):
+class set_name(unassigned):
 	'''Given a function, wich assigned multiple names on a class, 
 	passes the name to the function and assigns the result of the
 	function call to the variable name class.
@@ -218,7 +224,7 @@ def copy_fromcls(cls, /):
 		return func_copy(getattr(cls, name))
 
 
-def dunder_method(module, strip=None):
+def magic_method(module, strip=None):
 	
 	def decorator(func, /):
 	
@@ -231,9 +237,9 @@ def dunder_method(module, strip=None):
 	return decorator
 
 
-operator_method = dunder_method(operator)
+operator_magic = magic_method(operator)
 
-builtin_method = dunder_method(builtins, strip=True)
+builtin_magic = magic_method(builtins, strip=True)
 
 
 # class namespace:
