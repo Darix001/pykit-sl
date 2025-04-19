@@ -365,21 +365,21 @@ class Sub(Base):
     @stripfunc
     def rstrip(string, start, stop, chars, /):
         pass
+
+
+def nested_match_error(strip:bool, p1:str, p2:str, index:int, /) -> ValueError:
+    return ValueError(f'{p1}{p2}, at column {index - strip!r}')
     
         
 def nested_matcher(chars:str, /):
     op, cl = chars
 
     def function(string:str, /, strip=False):
-
-        def error(text, index, /):
-            nonlocal strip
-            return ValueError(f'{text}, at column {index - strip!r}')
-
         groups = []
         it = filter(item1, enumerate(map({op:1, cl:-1}.get, string), strip))
         it2 = map(len, repeat(starts := [])) #Iterator for DRY code
         stop_add = -1 if strip else 1
+        error = partial(nested_match_error, strip)
 
         #depth = number of openings == len(starts)
         for (index, sign), depth in zip(it, it2):
@@ -393,15 +393,16 @@ def nested_matcher(chars:str, /):
 
             #If there is a closing, there must be an opening catched before
             elif depth:
-                groups[depth - 1].append(string[starts.pop():index + stop_add])
+                depth -= 1
+                groups[depth].append(string[starts.pop():index + stop_add])
 
             #At this point, the string has more closings than openings.
             else:
-                raise error("unmatched " + cl, index)
+                raise error("unmatched ", cl, index)
 
 
-        if starts:
-           raise error(op + " was never closed", starts.pop())
+        if depth:
+           raise error(op, " was never closed", starts.pop())
         else:
             return groups
 
