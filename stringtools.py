@@ -5,7 +5,7 @@ from string import whitespace
 from functools import wraps, partial
 from collections.abc import Callable, Iterator
 from itertools import accumulate, repeat, islice
-from dataclasses import dataclass, make_dataclass
+from dataclasses import dataclass
 from operator import methodcaller, getitem, itemgetter
 
 
@@ -130,9 +130,6 @@ def replace_last(string:str, oldsub:str, newsub:str, /) -> str:
 
 def preffixer(string:str, /):
     return methodcaller('replace', '', string, 1)
-
-
-Base = make_dataclass('Base', (('string', str),), slots=True, init=False)
 
 
 @dataclass
