@@ -103,7 +103,7 @@ def stairs(string:str, r:int, /, fillchar:str=' ', increase=1, *,
     '''
     
     if reverse:
-        inc = (n := lenfd(string)) * increase
+        inc = (n := len(string)) * increase
         func, item = getitem, slice(-inc)
         string *= (inc * (r - 1)) + n
     
@@ -179,7 +179,7 @@ class Sub(Base):
     def __eq__(self, s, /):
         if isinstance(type(string := self.string), s):
             i = self.indices
-            return len(s) == len(i) and string.startswith(s, i.start, i.stop)
+            return len(s) == len(i) and string.startswith(s, i.start)
         else:
             return NotImplemented
 
