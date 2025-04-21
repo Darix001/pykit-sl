@@ -1,12 +1,11 @@
 from .methodtools import setname_factory, builtin_magic, name_wrap, unassigned
 
 from array import array
-from string import whitespace
 from functools import wraps, partial
-from collections.abc import Callable, Iterator
 from itertools import accumulate, repeat, islice
 from dataclasses import dataclass, make_dataclass
 from operator import methodcaller, getitem, itemgetter
+from collections.abc import Callable, Iterator, Generator
 
 
 STRITER = Iterator[str]
@@ -189,7 +188,7 @@ class Sub(Base):
 
     def stringfunc(name, /):
         
-        def func(self, sub, start:int=0, stop:int|None=None, /):
+        def func(self, sub:str, start:int=0, stop:int|None=None, /):
             indices = self.indices[start:stop]
             method = getattr(self.string, name)
             return method(sub, indices.start, indices.stop)
@@ -217,62 +216,86 @@ class Sub(Base):
         
         @wraps(fn := factory(name))
         def function(*args):
-            return args[0].indices.index(i) if (i := fn(*args)) != -1 else i
+            if (i := fn(*args)) != -1:
+                return args[0].indices.index(i)
+            else:
+                return i
 
         return function
 
     rfind = find
 
-    def splitfunc(func, /):
+    
+    def finditer(self, sub:str, start:int=0, stop:int|None=None, /
+        ) -> Generator[int]:
         
-        @name_wrap(func)
-        def function(self, /, sep, maxsplit=-1):
-            i = self.indices
-            it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
-            gen = func(i.start, i.stop, s := self.string, len(sep), sep, it)
-            ranges = map(range, gen, gen)
-            return [*map(type(self), repeat(s), ranges)]
-
-        return function
-
-
-    @splitfunc
-    def split(start, stop, string, sep_size, sep, it, /):
-        for _ in it:
+        i = self.indices[start:stop]
+        start, stop = i.start, i.stop
+        sub_size = len(sub)
+        find = self.string.find
+        
+        while (start := find(sub, start, stop)) != -1:
             yield start
-            if (value := string.find(sep, start, stop)) == -1:
-                break
-            else:
-                yield value
-                start = value + sep_size
+            start += sub_size
+
+    
+    # def splitfunc(func, /):
+        
+    #     @name_wrap(func)
+    #     def function(self, /, sep:str, maxsplit:int=-1):
+    #         i = self.indices
+    #         it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
+    #         gen = func(i.start, i.stop, s := self.string, len(sep), sep, it)
+    #         return [*map(type(self), repeat(s), map(range, gen, gen))]
+
+    #     return function
+
+
+    def split(self, sub:str, maxsplit:int=-1, /):
+        if not maxsplit:
+            return [self]
 
         else:
-            return
+            it = self.finditer(sub)
+            if maxsplit > 0:
+                it = islice(it, maxsplit)
 
-        for _ in it:
-            yield value + sep_size
-            break
+            i = self.indices
+            starts = [i.start]
+            stops = []
+            sub_size = len(sub)
 
-        yield stop
 
+            for index in it:
+                stops.append(index)
+                starts.append(index + sub_size)
 
-    @splitfunc
-    def rsplit(start, stop, string, sep_size, sep, it, /):
-        #MODIFY
-        for _ in it:
-            if (value := string.rfind(sep, start, stop)) == -1:
-                break
             else:
-                ranges.append(range(start, value))
-                start = value + sep_size
+                return [self]
 
-        for _ in it:
-            ranges.append(indices[ranges[-1].stop:])
-            break
+            stops.append(i.stop)
+            starts[:] = map(type(self), repeat(string),
+                map(range, starts, stops))
+
+            return starts
+
+    # @splitfunc
+    # def rsplit(start, stop, string, sep_size, sep, it, /):
+    #     indices = []
+    #     for _ in it:
+    #         yield
+    #         if (value := string.rfind(sep, start, stop)) != -1:
+    #             indices.append(value)
+    #             indices.append(stop)
+    #             stop = value - sep_size
+    #         else:
+    #             break
+
+    #     return reversed(indices)
 
 
     def removeprefix(self, prefix, /):
-        '''Return a StringPart with the given prefix string removed if present.
+        '''Return a Sub with the given prefix string removed if present.
 
         If the string starts with the prefix string, return string[len(prefix):].
         Otherwise, return a copy of the original string.'''
@@ -286,7 +309,7 @@ class Sub(Base):
 
 
     def removesuffix(self, suffix, /):
-        '''Return a StringPart with the given suffix string removed if present.
+        '''Return a Sub with the given suffix string removed if present.
 
         If the string ends with the suffix string,
         return string[:-len(suffix)].
@@ -338,7 +361,7 @@ class Sub(Base):
     def stripfunc(func, /):
         
         @name_wrap(func)
-        def function(self, chars=None, /):
+        def function(self, chars:str=None, /):
             if chars is None:
                 chars = whitespace
             
@@ -367,11 +390,11 @@ class Sub(Base):
         pass
 
 
-def nested_match_error(strip:bool, p1:str, p2:str, index:int, /) -> ValueError:
+def nested_group_error(strip:bool, p1:str, p2:str, index:int, /) -> ValueError:
     return ValueError(f'{p1}{p2}, at column {index - strip!r}')
     
         
-def nested_matcher(chars:str, /):
+def nested_grouper(chars:str, /):
     op, cl = chars
 
     def function(string:str, /, strip=False):
@@ -379,7 +402,7 @@ def nested_matcher(chars:str, /):
         it = filter(item1, enumerate(map({op:1, cl:-1}.get, string), strip))
         it2 = map(len, repeat(starts := [])) #Iterator for DRY code
         stop_add = -1 if strip else 1
-        error = partial(nested_match_error, strip)
+        error = partial(nested_group_error, strip)
 
         #depth = number of openings == len(starts)
         for (index, sign), depth in zip(it, it2):
@@ -409,4 +432,4 @@ def nested_matcher(chars:str, /):
     return function
 
 
-del Callable, Iterator, STRITER, itemgetter
+del Callable, Iterator, STRITER, itemgetter, Generator
