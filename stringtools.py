@@ -3,7 +3,7 @@ from .methodtools import setname_factory, builtin_magic, name_wrap, unassigned
 from array import array
 from functools import wraps, partial
 from itertools import accumulate, repeat, islice
-from dataclasses import dataclass, make_dataclass
+from dataclasses import dataclass
 from operator import methodcaller, getitem, itemgetter
 from collections.abc import Callable, Iterator, Generator
 
@@ -102,7 +102,7 @@ def stairs(string:str, r:int, /, fillchar:str=' ', increase=1, *,
     '''
     
     if reverse:
-        inc = (n := lenfd(string)) * increase
+        inc = (n := len(string)) * increase
         func, item = getitem, slice(-inc)
         string *= (inc * (r - 1)) + n
     
@@ -129,9 +129,6 @@ def replace_last(string:str, oldsub:str, newsub:str, /) -> str:
 
 def preffixer(string:str, /):
     return methodcaller('replace', '', string, 1)
-
-
-Base = make_dataclass('Base', (('string', str),), slots=True, init=False)
 
 
 @dataclass
@@ -181,7 +178,7 @@ class Sub(Base):
     def __eq__(self, s, /):
         if isinstance(type(string := self.string), s):
             i = self.indices
-            return len(s) == len(i) and string.startswith(s, i.start, i.stop)
+            return len(s) == len(i) and string.startswith(s, i.start)
         else:
             return NotImplemented
 
