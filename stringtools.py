@@ -2,9 +2,9 @@ from .methodtools import setname_factory, builtin_magic, name_wrap, unassigned
 
 from array import array
 from functools import wraps, partial
-from itertools import accumulate, repeat, islice
 from dataclasses import dataclass
 from operator import methodcaller, getitem, itemgetter
+from itertools import accumulate, repeat, islice, starmap
 from collections.abc import Callable, Iterator, Generator
 
 
@@ -249,7 +249,8 @@ class Sub:
             if maxsplit:
                 string = self.string
                 g = gen(self.indices, string.find, sub, maxsplit)
-                return [*map(type(self), repeat(string), map(range, g, g))]
+                ranges = starmap(range, g)
+                return [*map(type(self), repeat(string), ranges)]
             
             else:
                 return [self]
@@ -259,21 +260,19 @@ class Sub:
 
     @splitter
     def split(indices, finder, sub, maxsplit, /):
-        start = indices.start
+        i = start = indices.start
         stop = indices.stop
         sub_size = len(sub)
         it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
 
         for _ in it:
-            yield start
-    
-            if (start := finder(sub, start, stop)) == -1:
+            if (i := finder(sub, start, stop)) == -1:
                 break
             else:
-                yield start
-                start += sub_size
+                yield start, i
+                start = i + sub_size
 
-        yield stop
+        yield (start, stop)
             
     # @splitfunc
     # def rsplit(start, stop, string, sep_size, sep, it, /):
