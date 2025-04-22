@@ -240,37 +240,27 @@ class Sub:
             start += sub_size
 
     
-    
-    
-    def splitter(gen:Generator, /):
-        
-        @name_wrap(gen)
-        def function(self, sub:str, maxsplit:int=-1, /):
-            if maxsplit:
-                string = self.string
-                g = gen(self.indices, string.find, sub, maxsplit)
-                ranges = starmap(range, g)
-                return [*map(type(self), repeat(string), ranges)]
-            
-            else:
-                return [self]
-        
-        return function
+    def split(self, sub:str, maxsplit:int=-1, /):
+        ranges = starmap(range, self.split_indices(sub, maxsplit))
+        return [*map(type(self), repeat(self.string), ranges)]
             
 
-    @splitter
-    def split(indices, finder, sub, maxsplit, /):
-        i = start = indices.start
+    def split_indices(self, sub:str, maxsplit:int=-1, /):
+        indices = self.indices
+        finder = self.string.find
+        i = start = self.indices.start
         stop = indices.stop
-        sub_size = len(sub)
-        it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
+        
+        if maxsplit:
+            sub_size = len(sub)
+            it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
 
-        for _ in it:
-            if (i := finder(sub, start, stop)) == -1:
-                break
-            else:
-                yield start, i
-                start = i + sub_size
+            for _ in it:
+                if (i := finder(sub, start, stop)) == -1:
+                    break
+                else:
+                    yield start, i
+                    start = i + sub_size
 
         yield (start, stop)
             
