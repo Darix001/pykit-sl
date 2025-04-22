@@ -131,8 +131,8 @@ def preffixer(string:str, /):
     return methodcaller('replace', '', string, 1)
 
 
-@dataclass
-class Sub(Base):
+@dataclass(frozen=True)
+class Sub:
     __slots__ = 'string', 'indices'
     string:str
     indices:range
@@ -176,9 +176,13 @@ class Sub(Base):
         return self.string.find(string, i.start, i.stop) != -1
 
     def __eq__(self, s, /):
-        if isinstance(type(string := self.string), s):
-            i = self.indices
+        i = self.indices
+        if isinstance(s, type(string := self.string)):
             return len(s) == len(i) and string.startswith(s, i.start)
+        
+        elif isinstance(s, Sub):
+            return s.string is string and i == s.indices
+        
         else:
             return NotImplemented
 
@@ -236,46 +240,41 @@ class Sub(Base):
             start += sub_size
 
     
-    # def splitfunc(func, /):
+    
+    
+    def splitter(gen:Generator, /):
         
-    #     @name_wrap(func)
-    #     def function(self, /, sep:str, maxsplit:int=-1):
-    #         i = self.indices
-    #         it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
-    #         gen = func(i.start, i.stop, s := self.string, len(sep), sep, it)
-    #         return [*map(type(self), repeat(s), map(range, gen, gen))]
-
-    #     return function
-
-
-    def split(self, sub:str, maxsplit:int=-1, /):
-        if not maxsplit:
-            return [self]
-
-        else:
-            it = self.finditer(sub)
-            if maxsplit > 0:
-                it = islice(it, maxsplit)
-
-            i = self.indices
-            starts = [i.start]
-            stops = []
-            sub_size = len(sub)
-
-
-            for index in it:
-                stops.append(index)
-                starts.append(index + sub_size)
-
+        @name_wrap(gen)
+        def function(self, sub:str, maxsplit:int=-1, /):
+            if maxsplit:
+                string = self.string
+                g = gen(self.indices, string.find, sub, maxsplit)
+                return [*map(type(self), repeat(string), map(range, g, g))]
+            
             else:
                 return [self]
+        
+        return function
+            
 
-            stops.append(i.stop)
-            starts[:] = map(type(self), repeat(string),
-                map(range, starts, stops))
+    @splitter
+    def split(indices, finder, sub, maxsplit, /):
+        start = indices.start
+        stop = indices.stop
+        sub_size = len(sub)
+        it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
 
-            return starts
+        for _ in it:
+            yield start
+    
+            if (start := finder(sub, start, stop)) == -1:
+                break
+            else:
+                yield start
+                start += sub_size
 
+        yield stop
+            
     # @splitfunc
     # def rsplit(start, stop, string, sep_size, sep, it, /):
     #     indices = []
@@ -289,6 +288,8 @@ class Sub(Base):
     #             break
 
     #     return reversed(indices)
+
+
 
 
     def removeprefix(self, prefix, /):
@@ -355,7 +356,7 @@ class Sub(Base):
     isdigit = isnumeric = isalpha = isalnum = isidentifier = isupper
 
     
-    def stripfunc(func, /):
+    def striper(func, /):
         
         @name_wrap(func)
         def function(self, chars:str=None, /):
@@ -372,17 +373,17 @@ class Sub(Base):
         return function
 
 
-    @stripfunc
+    @striper
     def strip(string, start, stop, chars, /):
         pass
 
 
-    @stripfunc
+    @striper
     def lstrip(string, start, stop, chars, /):
         pass
 
 
-    @stripfunc
+    @striper
     def rstrip(string, start, stop, chars, /):
         pass
 
