@@ -118,7 +118,8 @@ class set_name(unassigned):
 	'''
 	def __set_name__(self, cls, name, /):
 		setattr(cls, name, self.func(name))
-		
+	
+
 
 getinitcode = attrgetter('__init__.__code__')
 

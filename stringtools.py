@@ -1,4 +1,4 @@
-from .methodtools import setname_factory, builtin_magic, name_wrap, unassigned
+from .methodtools import setname_factory, builtin_magic, name_wrap
 
 from array import array
 from functools import wraps, partial
@@ -10,6 +10,10 @@ from collections.abc import Callable, Iterator, Generator
 
 STRITER = Iterator[str]
 item1 = itemgetter(1)
+
+
+def _rl_method(name, /):
+    return 'rfind' if name[0] == 'r' else 'find'
 
 
 class array(array):
@@ -240,46 +244,80 @@ class Sub:
             start += sub_size
 
     
-    def split(self, sub:str, maxsplit:int=-1, /):
-        ranges = starmap(range, self.split_indices(sub, maxsplit))
+    def split(self, sep:str, maxsplit:int=-1, /) -> list:
+        '''Return a list of the substrings in the string,
+                using sep as the separator string.
+
+          sep
+            The separator used to split the string.
+
+          maxsplit
+            Maximum number of splits (starting from the left).
+            -1 (the default value) means no limit.'''
+
+        ranges = starmap(range, self.split_indices(sep, maxsplit))
         return [*map(type(self), repeat(self.string), ranges)]
             
 
-    def split_indices(self, sub:str, maxsplit:int=-1, /):
-        indices = self.indices
-        finder = self.string.find
-        i = start = self.indices.start
-        stop = indices.stop
+    def rsplit(self, sep:str, maxsplit:int=-1, /) -> list:
+        '''Return a list of the substrings in the string,
+                using sep as the separator string.
+
+          sep
+            The separator used to split the string.
+
+          maxsplit
+            Maximum number of splits (starting from the left).
+            -1 (the default value) means no limit.
+
+        Splitting starts at the end of the string and works to the front.'''
         
-        if maxsplit:
-            sub_size = len(sub)
-            it = repeat(None) if maxsplit < 0 else repeat(None, maxsplit)
+        ranges = starmap(range, self.rsplit_indices(sep, maxsplit))
+        l =  [*map(type(self), repeat(self.string), reversed(ranges))]
+        l.reverse()
+        return l
 
-            for _ in it:
-                if (i := finder(sub, start, stop)) == -1:
-                    break
-                else:
-                    yield start, i
-                    start = i + sub_size
 
-        yield (start, stop)
+    def split_gen(func, /):
+        method = _rl_method(func.__name__)
+
+        @name_wrap(func)
+        def function(self, sep:str, maxsplit:int=-1, /
+            ) -> Generator[tuple[int, int]]:
+            indices = self.indices
+            finder = getattr(self.string, method)
+            args = [sep, indices.start, indices.stop]
             
-    # @splitfunc
-    # def rsplit(start, stop, string, sep_size, sep, it, /):
-    #     indices = []
-    #     for _ in it:
-    #         yield
-    #         if (value := string.rfind(sep, start, stop)) != -1:
-    #             indices.append(value)
-    #             indices.append(stop)
-    #             stop = value - sep_size
-    #         else:
-    #             break
+            if maxsplit:
+                sep_size = len(sep)
+                it = repeat(args) if maxsplit < 0 else repeat(args, maxsplit)
 
-    #     return reversed(indices)
+                for i in starmap(finder, it):
+                    if i == -1:
+                        break
+                    else:
+                        yield func(args, i, sep_size)
+                        
+            yield args[1:]
+
+        return function
 
 
+    @split_gen
+    def rsplit_indices(args, i, sep_size, /):
+        #args[2] = stop argument from generator outer func.
+        value =  (i, args[2])
+        fn.args[2] = i - sep_size
+        return value
 
+
+    @split_gen
+    def split_indices(args, i, sep_size, /):
+        #args[1] = start argument from generator outer func.
+        value = (args[1], i)
+        args[1] = i + sep_size
+        return value
+            
 
     def removeprefix(self, prefix, /):
         '''Return a Sub with the given prefix string removed if present.
@@ -288,7 +326,7 @@ class Sub:
         Otherwise, return a copy of the original string.'''
         
         string = self.string
-        indices = self.indices
+        indices = self.indstopi
         if preffix and string.startswith(prefix, indices.start, indices.stop):
             return type(self)(string, i[len(prefix):])
 
@@ -310,16 +348,16 @@ class Sub:
 
         return self
 
+    @setname_factory
+    def partition(method, /) -> tuple:
+        name = _rl_method(method)
 
-    def partitionfunc(name, /) -> tuple:
-
-        @unassigned
         def function(self, sep, /):
             indices = self.indices
             string = self.string
             start, stop = indices.start, indices.stop
 
-            if value := getattr(string, name)(sep, start, stop):
+            if value := getattr(string, method)(sep, start, stop):
                 cls = type(self)
                 return (cls(string, range(start, value)), sep,
                     cls(string, range(value + len(sep), stop)))
@@ -329,7 +367,7 @@ class Sub:
         return function
 
 
-    partition, rpartition = map(partitionfunc, ('find', 'rfind'))
+    rpartition = partition
 
 
     @classmethod
@@ -341,8 +379,10 @@ class Sub:
         func = methodcaller(name)
         return lambda self, /: all(map(func, self))
 
-    isascii = islower = isprintable = istitle = isspace = isdecimal = isupper
-    isdigit = isnumeric = isalpha = isalnum = isidentifier = isupper
+    namespace = locals()
+    namespace |= namespace.fromkeys(
+    ('isascii', 'islower', 'isprintable', 'istitle', 'isspace', 'isdecimal',
+    'isdigit', 'isnumeric', 'isalpha', 'isalnum', 'isidentifier'), isupper)
 
     
     def striper(func, /):
@@ -377,7 +417,7 @@ class Sub:
         pass
 
 
-def nested_group_error(strip:bool, p1:str, p2:str, index:int, /) -> ValueError:
+def nested_group_error(strip, p1, p2, index, /) -> ValueError:
     return ValueError(f'{p1}{p2}, at column {index - strip!r}')
     
         
