@@ -105,5 +105,3 @@ def lcm2(x:Number, y:Number, /) -> Number:
     return x
 
 del math, Number
-
-print(re.compile(r'[-+]?(?:\d*\.*\d+)').findall('3'))

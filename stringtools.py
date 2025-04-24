@@ -1,11 +1,12 @@
 from .methodtools import setname_factory, builtin_magic, name_wrap
 
+
 from array import array
 from functools import wraps, partial
 from dataclasses import dataclass
 from operator import methodcaller, getitem, itemgetter
-from itertools import accumulate, repeat, islice, starmap
 from collections.abc import Callable, Iterator, Generator
+from itertools import accumulate, repeat, islice, starmap, chain
 
 
 STRITER = Iterator[str]
@@ -138,13 +139,13 @@ def preffixer(string:str, /):
 @dataclass(frozen=True)
 class Sub:
     __slots__ = 'string', 'indices'
-    string:str
+    string:str|bytes|bytearray
     indices:range
     maketrans = str.maketrans
-    
-    def __str__(self, /):
+
+    def __buffer__(self, flags=None, /):
         indices = self.indices
-        return self.string[indices.start:indices.stop]
+        return memoryview(self.string)[indices.start:indices.stop]
 
     def __getitem__(self, key, /):
         string = self.string
@@ -191,6 +192,13 @@ class Sub:
             return NotImplemented
 
 
+    def get(self, /) -> str|bytes|bytearray:
+        indices = self.indices
+        return self.string[indices.start:indices.stop]
+
+    __bytes__ = __str__ = get
+
+
     def stringfunc(name, /):
         
         def func(self, sub:str, start:int=0, stop:int|None=None, /):
@@ -230,18 +238,31 @@ class Sub:
 
     rfind = find
 
-    
-    def finditer(self, sub:str, start:int=0, stop:int|None=None, /
-        ) -> Generator[int]:
-        
-        i = self.indices[start:stop]
-        start, stop = i.start, i.stop
-        sub_size = len(sub)
-        find = self.string.find
-        
+    def find_iterator(func, /):
+        name = func.__name__.removesuffix('iter')
+
+        @name_wrap(func)
+        def function(self, sub:str, start:int=0, stop:int|None=None, /
+                ) -> Generator[int]:
+            indices = self.indices[start:stop]
+            return func(getattr(self.string, name), sub, indices.start,
+                indices.stop, len(sub))
+
+        return function
+
+
+    @find_iterator
+    def finditer(finder, sub, start, stop, sub_size, /):
         while (start := find(sub, start, stop)) != -1:
             yield start
             start += sub_size
+
+
+    @find_iterator
+    def rfinditer(finder, sub, start, stop, sub_size, /):
+        while (stop := find(sub, start, stop)) != -1:
+            yield stop
+            stop -= 1
 
     
     def split(self, sep:str, maxsplit:int=-1, /) -> list:
@@ -286,20 +307,22 @@ class Sub:
             ) -> Generator[tuple[int, int]]:
             indices = self.indices
             finder = getattr(self.string, method)
-            args = [sep, indices.start, indices.stop]
+            rargs = repeat(args := [sep, indices.start, indices.stop])
             
             if maxsplit:
                 sep_size = len(sep)
-                it = repeat(args) if maxsplit < 0 else repeat(args, maxsplit)
-                
-                for index in starmap(finder, it):
-                    if index == -1:
-                        break
-                    else:
-                        yield func(args, index, sep_size)
-                        
-            yield args[1:]
 
+                if maxsplit < 0:
+                    repeat_sep_size = repeat(sep_size)
+                
+                else:
+                    repeat_sep_size = repeat(sep_size, maxsplit)
+
+                it = iter(starmap(finder, rargs).__next__, -1)
+                
+                return chain(map(func, rargs, it, repeat_sep_size),
+                    (islice(args, 1, None),))
+                        
         return function
 
 
@@ -307,7 +330,7 @@ class Sub:
     def rsplit_indices(args, index, sep_size, /):
         #args[2] = stop argument from generator outer func.
         value =  (index, args[2])
-        args[2] = index - sep_size
+        args[2] = index - 1
         return value
 
 

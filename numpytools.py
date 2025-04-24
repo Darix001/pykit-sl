@@ -176,7 +176,7 @@ class Full:
 	def fill_value_method(func, /):
 		return lambda self, /: type(self)(self._shape, func(self.fill_value))
 
-	__invert__ = __neg__ = __pos__ = __abs__ = methodtools.operator_method(
+	__invert__ = __neg__ = __pos__ = __abs__ = methodtools.operator_magic(
 		fill_value_method)
 
 	conjugate = fill_value_method(methodcaller('conjugate'))
@@ -336,7 +336,7 @@ class Full:
 
 
 	def boolean_method(default, /):
-		@methodtools.unassigned_method
+		
 		def function(self, axis=None, /):
 			if self.size:
 				value = True if self.fill_value else False

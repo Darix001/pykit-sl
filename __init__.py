@@ -6,8 +6,8 @@ __version__ = '1.0'
 __date__ = '4/12/2025'
 
 
-tools = ('cache', 'compose', 'mapping', 'method', 'numpy', 'range',
-	'seq', 'string')
+tools = ('cache', 'compose', 'dict', 'method', 'num', 
+	'numpy', 'range', 'string')
 
 __all__ = [*map(concat, tools, repeat('tools'))]
 
