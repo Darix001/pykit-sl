@@ -291,12 +291,12 @@ class Sub:
             if maxsplit:
                 sep_size = len(sep)
                 it = repeat(args) if maxsplit < 0 else repeat(args, maxsplit)
-
-                for i in starmap(finder, it):
-                    if i == -1:
+                
+                for index in starmap(finder, it):
+                    if index == -1:
                         break
                     else:
-                        yield func(args, i, sep_size)
+                        yield func(args, index, sep_size)
                         
             yield args[1:]
 
@@ -304,18 +304,18 @@ class Sub:
 
 
     @split_gen
-    def rsplit_indices(args, i, sep_size, /):
+    def rsplit_indices(args, index, sep_size, /):
         #args[2] = stop argument from generator outer func.
-        value =  (i, args[2])
-        fn.args[2] = i - sep_size
+        value =  (index, args[2])
+        args[2] = index - sep_size
         return value
 
 
     @split_gen
-    def split_indices(args, i, sep_size, /):
+    def split_indices(args, index, sep_size, /):
         #args[1] = start argument from generator outer func.
-        value = (args[1], i)
-        args[1] = i + sep_size
+        value = (args[1], index)
+        args[1] = index + sep_size
         return value
             
 
@@ -326,7 +326,7 @@ class Sub:
         Otherwise, return a copy of the original string.'''
         
         string = self.string
-        indices = self.indstopi
+        indices = self.indices
         if preffix and string.startswith(prefix, indices.start, indices.stop):
             return type(self)(string, i[len(prefix):])
 
@@ -375,14 +375,16 @@ class Sub:
         return cls(string, range(start, len(string) if stop < 0 else stop))
 
     @setname_factory
-    def isupper(name, /):
+    def ismethod(name, /):
         func = methodcaller(name)
         return lambda self, /: all(map(func, self))
-
+    
     namespace = locals()
+    
     namespace |= namespace.fromkeys(
-    ('isascii', 'islower', 'isprintable', 'istitle', 'isspace', 'isdecimal',
-    'isdigit', 'isnumeric', 'isalpha', 'isalnum', 'isidentifier'), isupper)
+        filter(methodcaller('startswith', 'is'),  vars(str)), ismethod)
+
+    del namespace, ismethod
 
     
     def striper(func, /):
