@@ -13,8 +13,40 @@ STRITER = Iterator[str]
 item1 = itemgetter(1)
 
 
+def strdoc(func, name=None, /):
+    func.__doc__ = getattr(str, name or func.__name__).__doc__
+    return func
+
+
 def _rl_method(name, /):
     return 'rfind' if name[0] == 'r' else 'find'
+
+
+def remover(func, methods={'prefix':'start', 'suffix':'end'}, /):
+    method = methods[func.__name__[6:]]
+
+    @strdoc
+    @name_wrap(func)
+    def function(self, sub:str, /):
+        string = self.string
+        i = self.indices
+        
+        if sub and getattr(string, method)(sub, i.start, i.stop):
+            return type(self)(string, i[func(len(sub))])
+        else:
+            return self
+    
+    return function
+
+
+def stringfunc(name, /):
+    
+    def func(self, sub:str, start:int=0, stop:int|None=None, /):
+        indices = self.indices[start:stop]
+        method = getattr(self.string, name)
+        return method(sub, indices.start, indices.stop)
+
+    return strdoc(func, name)
 
 
 class array(array):
@@ -199,16 +231,6 @@ class Sub:
     __bytes__ = __str__ = get
 
 
-    def stringfunc(name, /):
-        
-        def func(self, sub:str, start:int=0, stop:int|None=None, /):
-            indices = self.indices[start:stop]
-            method = getattr(self.string, name)
-            return method(sub, indices.start, indices.stop)
-
-        func.__doc__ = getattr(str, name).__doc__
-        return func
-
     endswith = startswith = count = setname_factory(stringfunc)
 
     
@@ -246,21 +268,22 @@ class Sub:
                 ) -> Generator[int]:
             indices = self.indices[start:stop]
             return func(getattr(self.string, name), sub, indices.start,
-                indices.stop, len(sub))
+                indices.stop)
 
         return function
 
 
     @find_iterator
-    def finditer(finder, sub, start, stop, sub_size, /):
-        while (start := find(sub, start, stop)) != -1:
+    def finditer(finder, sep, start, stop, /):
+        sep_size = len(sep)
+        while (start := finder(sep, start, stop)) != -1:
             yield start
-            start += sub_size
+            start += sep_size
 
 
     @find_iterator
-    def rfinditer(finder, sub, start, stop, sub_size, /):
-        while (stop := find(sub, start, stop)) != -1:
+    def rfinditer(finder, sep, start, stop, /):
+        while (stop := finder(sep, start, stop)) != -1:
             yield stop
             stop -= 1
 
@@ -278,21 +301,10 @@ class Sub:
 
         ranges = starmap(range, self.split_indices(sep, maxsplit))
         return [*map(type(self), repeat(self.string), ranges)]
-            
-
+    
+    
+    @strdoc
     def rsplit(self, sep:str, maxsplit:int=-1, /) -> list:
-        '''Return a list of the substrings in the string,
-                using sep as the separator string.
-
-          sep
-            The separator used to split the string.
-
-          maxsplit
-            Maximum number of splits (starting from the left).
-            -1 (the default value) means no limit.
-
-        Splitting starts at the end of the string and works to the front.'''
-        
         ranges = starmap(range, self.rsplit_indices(sep, maxsplit))
         l =  [*map(type(self), repeat(self.string), reversed(ranges))]
         l.reverse()
@@ -305,75 +317,53 @@ class Sub:
         @name_wrap(func)
         def function(self, sep:str, maxsplit:int=-1, /
             ) -> Generator[tuple[int, int]]:
-            indices = self.indices
-            finder = getattr(self.string, method)
-            rargs = repeat(args := [sep, indices.start, indices.stop])
             
+            i = self.indices
+            data = [i.start, i.stop]
+            finder = getattr(self.string, method)
+            sep_size = len(sep)
+
             if maxsplit:
-                sep_size = len(sep)
-
-                if maxsplit < 0:
-                    repeat_sep_size = repeat(sep_size)
+                it = repeat(None, maxsplit) if maxsplit > 0 else repeat(None)
                 
-                else:
-                    repeat_sep_size = repeat(sep_size, maxsplit)
+                for _ in it:
+                    if (index := finder(sep, data[0], data[1])) != -1:
+                        yield func(data, index, index + sep_size)
+                    else:
+                        break
 
-                it = iter(starmap(finder, rargs).__next__, -1)
-                
-                return chain(map(func, rargs, it, repeat_sep_size),
-                    (islice(args, 1, None),))
-                        
+            yield tuple(data)
+
         return function
 
 
     @split_gen
-    def rsplit_indices(args, index, sep_size, /):
-        #args[2] = stop argument from generator outer func.
-        value =  (index, args[2])
-        args[2] = index - 1
+    def split_indices(data, index, new_value, /):
+        #data[0] = start
+        value = (data[0], index)
+        data[0] = new_value
         return value
 
 
     @split_gen
-    def split_indices(args, index, sep_size, /):
-        #args[1] = start argument from generator outer func.
-        value = (args[1], index)
-        args[1] = index + sep_size
+    def rsplit_indices(data, index, new_value, /):
+        value = (new_value, data[1])
+        data[1] = index - 1
         return value
             
 
-    def removeprefix(self, prefix, /):
-        '''Return a Sub with the given prefix string removed if present.
+    @remover
+    def removeprefix(sub_size, /):
+        return slice(sub_size, None)
 
-        If the string starts with the prefix string, return string[len(prefix):].
-        Otherwise, return a copy of the original string.'''
-        
-        string = self.string
-        indices = self.indices
-        if preffix and string.startswith(prefix, indices.start, indices.stop):
-            return type(self)(string, i[len(prefix):])
-
-        return self
-
-
+    @remover
     def removesuffix(self, suffix, /):
-        '''Return a Sub with the given suffix string removed if present.
+        return slice(-sub_size)
 
-        If the string ends with the suffix string,
-        return string[:-len(suffix)].
-
-        Otherwise, return a copy of the original string.'''
-        
-        string = self.string
-        indices = self.indices
-        if suffix and string.endswith(suffix, indices.start, indices.stop):
-            return type(self)(string, i[:-len(suffix)])
-
-        return self
 
     @setname_factory
-    def partition(method, /) -> tuple:
-        name = _rl_method(method)
+    def partition(name, /) -> tuple:
+        method = _rl_method(name)
 
         def function(self, sep, /):
             indices = self.indices
@@ -387,15 +377,12 @@ class Sub:
             else:
                 return (self, '', '')
 
+        strdoc(function, name)
         return function
 
 
     rpartition = partition
 
-
-    @classmethod
-    def new(cls, string, start:int=0, stop:int=-1, /):
-        return cls(string, range(start, len(string) if stop < 0 else stop))
 
     @setname_factory
     def ismethod(name, /):
@@ -440,6 +427,11 @@ class Sub:
     @striper
     def rstrip(string, start, stop, chars, /):
         pass
+
+
+    @classmethod
+    def new(cls, string, start:int=0, stop:int=-1, /):
+        return cls(string, range(start, len(string) if stop < 0 else stop))
 
 
 def nested_group_error(strip, p1, p2, index, /) -> ValueError:
