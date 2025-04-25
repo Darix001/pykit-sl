@@ -4,9 +4,9 @@ from .methodtools import setname_factory, builtin_magic, name_wrap
 from array import array
 from functools import wraps, partial
 from dataclasses import dataclass
-from operator import methodcaller, getitem, itemgetter
+from operator import methodcaller, getitem, itemgetter, length_hint
 from collections.abc import Callable, Iterator, Generator
-from itertools import accumulate, repeat, islice, starmap, chain
+from itertools import accumulate, repeat, islice, starmap, chain, filterfalse
 
 
 STRITER = Iterator[str]
@@ -20,6 +20,38 @@ def strdoc(func, name=None, /):
 
 def _rl_method(name, /):
     return 'rfind' if name[0] == 'r' else 'find'
+
+
+@setname_factory
+def ismethod(name, /):
+    func = methodcaller(name)
+    return lambda self, /: all(map(func, self))
+
+
+def striper(func, /):
+    
+    @name_wrap(func)
+    def function(self, chars:str=None, /):
+        if chars is None:
+            chars = whitespace
+        
+        elif not chars:
+            return self
+
+        else:
+            i = self.indices
+            return func(self, frozenset(chars))
+
+    return function
+
+
+class Stripper:
+    __slots__ = 'chars'
+    chars:frozenset[str]
+    
+    def __init__(self, chars:str, /):
+        pass
+
 
 
 def remover(func, methods={'prefix':'start', 'suffix':'end'}, /):
@@ -384,48 +416,27 @@ class Sub:
     rpartition = partition
 
 
-    @setname_factory
-    def ismethod(name, /):
-        func = methodcaller(name)
-        return lambda self, /: all(map(func, self))
     
     namespace = locals()
     
     namespace |= namespace.fromkeys(
         filter(methodcaller('startswith', 'is'),  vars(str)), ismethod)
 
-    del namespace, ismethod
-
+    del namespace
     
-    def striper(func, /):
-        
-        @name_wrap(func)
-        def function(self, chars:str=None, /):
-            if chars is None:
-                chars = whitespace
-            
-            elif not chars:
-                return self
-
-            else:
-                i = self.indices
-                return func(self.string, i.start, i.stop, chars)
-
-        return function
-
-
+    
     @striper
-    def strip(string, start, stop, chars, /):
+    def strip(self, chars, /):
         pass
 
 
     @striper
-    def lstrip(string, start, stop, chars, /):
+    def lstrip(self, chars, /):
         pass
 
 
     @striper
-    def rstrip(string, start, stop, chars, /):
+    def rstrip(self, chars, /):
         pass
 
 
