@@ -3,9 +3,10 @@ All this tools are usefull only for functions that only holds'''
 
 from typing import Any
 from types import SimpleNamespace
-from itertools import islice, count
-from functools import update_wrapper
 from collections import defaultdict
+from functools import update_wrapper
+from itertools import islice, count, tee, starmap
+from collections.abc import Iterable, MutableMapping
 
 obj_setattr = object.__setattr__
 
@@ -22,6 +23,11 @@ class Cache(defaultdict):
 	def __getattr__(self, attr, /):
 		return getattr(self.default_factory, attr)
 
+	def keymap_update(self, keys:Iterable, /):
+		keys, values = tee(keys, 2)
+		self.update(zip(keys, map(self.default_factory, values)))
+
+
 del defaultdict
 
 
@@ -34,9 +40,14 @@ class StarCache(Cache, dict[tuple, Any]):
 	def __missing__(self, args, /):
 		self[args] = value = self.default_factory(*args)
 		return value
+
+	def keymap_update(self, keys:Iterable[tuple], /):
+		keys, values = tee(keys, 2)
+		self.update(zip(keys, starmapmap(self.default_factory, values)))
 		
 
 class cached_property:
+	__slots__ = 'func'
 
 	def __init__(self, func, /):
 		self.func = func
@@ -51,7 +62,7 @@ class cached_property:
 		return value
 		
 
-class AttrCache(SimpleNamespace):
+class AttrCache(SimpleNamespace, MutableMapping):
 	__slots__ = '__func'
 	'''Works like a cache dict, but with the equivalence of
 	getattr(cache, attr) == cache[attr]'''
@@ -106,4 +117,5 @@ def enumcache(func, data, size, /):
 		start = len(data)
 	return data, map(func, _getcounter(start, size))
 
-del Any
+
+del Any, Iterable
